@@ -24,6 +24,7 @@ import { ExportModal } from './components/ExportModal';
 import { BatchModal } from './components/BatchModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { HomePage } from './pages/HomePage';
+import { Analytics } from '@vercel/analytics/react';
 
 export default function App() {
   // Routing state ('home' | 'editor')
@@ -721,6 +722,9 @@ export default function App() {
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
       />
+
+      {/* VERCEL WEB ANALYTICS */}
+      <Analytics />
     </div>
   );
 }
