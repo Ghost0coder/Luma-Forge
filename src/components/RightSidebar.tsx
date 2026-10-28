@@ -12,6 +12,8 @@ import {
   FlipVertical,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Plus,
   Trash2,
   Eye,
@@ -39,6 +41,8 @@ interface RightSidebarProps {
   setActiveMaskId: (id: string | null) => void;
   onGenerateAISubjectMask?: (type: 'ai-subject' | 'ai-background') => Promise<void>;
   isSegmenting?: boolean;
+  isOpen?: boolean;
+  onToggleOpen?: () => void;
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
@@ -52,9 +56,15 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   setActiveMaskId,
   onGenerateAISubjectMask,
   isSegmenting = false,
+  isOpen = true,
+  onToggleOpen,
 }) => {
+  // Mode state: 'basic' vs 'advanced'
+  const [editMode, setEditMode] = useState<'basic' | 'advanced'>('basic');
+
   // Accordion section open states
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    basic: true,
     light: true,
     color: true,
     curves: false,
@@ -184,27 +194,102 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   const activeMask = adjustments.masks.find((m) => m.id === activeMaskId);
 
+  if (!isOpen) {
+    return (
+      <div className="w-10 bg-[#0e1117] border-l border-[#1b202c] flex flex-col items-center py-3 gap-4 shrink-0 z-20 select-none">
+        <button
+          onClick={onToggleOpen}
+          title="Expand Right Sidebar"
+          className="p-1.5 text-slate-400 hover:text-white hover:bg-[#1a202d] rounded-md transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => {
+            setEditMode('basic');
+            onToggleOpen?.();
+          }}
+          title="Basic Editing Mode"
+          className={`p-2 rounded-md transition-colors ${
+            editMode === 'basic' ? 'text-violet-400 bg-violet-950/40' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Sun className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => {
+            setEditMode('advanced');
+            onToggleOpen?.();
+          }}
+          title="Advanced Editing Mode"
+          className={`p-2 rounded-md transition-colors ${
+            editMode === 'advanced' ? 'text-violet-400 bg-violet-950/40' : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <aside className="w-80 sm:w-84 bg-[#0e1117] border-l border-[#1b202c] flex flex-col h-[calc(100vh-3rem)] shrink-0 z-20 select-none overflow-hidden text-slate-200">
-      {/* Top Section: Live Histogram & AI Suggestions */}
+      {/* Top Section: Mode Switcher (Basic vs Advanced) */}
+      <div className="p-2.5 border-b border-[#1b202c] bg-[#0c0f16] flex items-center justify-between">
+        <div className="flex items-center gap-1 p-0.5 bg-[#141822] rounded-lg border border-[#202738] text-xs">
+          <button
+            onClick={() => setEditMode('basic')}
+            className={`px-3 py-1 rounded-md font-semibold transition-all ${
+              editMode === 'basic'
+                ? 'bg-violet-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Basic Mode
+          </button>
+          <button
+            onClick={() => setEditMode('advanced')}
+            className={`px-3 py-1 rounded-md font-semibold transition-all ${
+              editMode === 'advanced'
+                ? 'bg-violet-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Advanced Mode
+          </button>
+        </div>
+
+        {onToggleOpen && (
+          <button
+            onClick={onToggleOpen}
+            title="Collapse Right Sidebar"
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-[#1a202d] rounded-md transition-colors"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Histogram & Deterministic Auto Adjust Section */}
       <div className="p-3 border-b border-[#1b202c] space-y-3 bg-[#0d1016]">
         <HistogramView data={histogramData} />
 
-        {/* Auto-Enhance Button */}
+        {/* Local Deterministic Auto Adjust Button */}
         <button
           onClick={onRunAIEnhance}
           disabled={isAIAnalyzing}
+          title="100% Local Deterministic Histogram Auto-Levels & Color Balance"
           className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 active:from-violet-700 active:to-indigo-700 text-white rounded-lg font-semibold text-xs shadow-md shadow-violet-950/50 transition-all cursor-pointer disabled:opacity-50"
         >
           {isAIAnalyzing ? (
             <>
               <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              <span>Analyzing Light & Tones...</span>
+              <span>Auto Adjusting Tones...</span>
             </>
           ) : (
             <>
               <Wand2 className="w-3.5 h-3.5 text-violet-200" />
-              <span>Auto Enhance</span>
+              <span>Auto Adjust</span>
             </>
           )}
         </button>
@@ -229,6 +314,224 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
       {/* Scrollable Adjustment Modules */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3 divide-y divide-[#1b202c]">
+        {/* BASIC MODE CONTROLS */}
+        {editMode === 'basic' && (
+          <div className="space-y-4 pt-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-violet-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Sun className="w-3.5 h-3.5 text-amber-400" />
+                Basic Tone & Color Adjustments
+              </span>
+              <button
+                onClick={resetLight}
+                title="Reset basic sliders"
+                className="text-slate-500 hover:text-slate-300 p-0.5 text-xs flex items-center gap-1"
+              >
+                <ResetIcon className="w-3 h-3" />
+                <span>Reset</span>
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              {/* Exposure */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium">Exposure</span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.exposure > 0
+                      ? `+${adjustments.exposure.toFixed(2)} EV`
+                      : `${adjustments.exposure.toFixed(2)} EV`}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-5"
+                  max="5"
+                  step="0.05"
+                  value={adjustments.exposure}
+                  onDoubleClick={() => updateField('exposure', 0, 'Reset Exposure')}
+                  onChange={(e) => updateField('exposure', parseFloat(e.target.value), 'Exposure')}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Contrast */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium">Contrast</span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.contrast > 0 ? `+${adjustments.contrast}` : adjustments.contrast}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={adjustments.contrast}
+                  onDoubleClick={() => updateField('contrast', 0, 'Reset Contrast')}
+                  onChange={(e) => updateField('contrast', parseInt(e.target.value, 10), 'Contrast')}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Highlights */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium">Highlights</span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.highlights > 0 ? `+${adjustments.highlights}` : adjustments.highlights}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={adjustments.highlights}
+                  onDoubleClick={() => updateField('highlights', 0, 'Reset Highlights')}
+                  onChange={(e) => updateField('highlights', parseInt(e.target.value, 10), 'Highlights')}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Shadows */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium">Shadows</span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.shadows > 0 ? `+${adjustments.shadows}` : adjustments.shadows}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={adjustments.shadows}
+                  onDoubleClick={() => updateField('shadows', 0, 'Reset Shadows')}
+                  onChange={(e) => updateField('shadows', parseInt(e.target.value, 10), 'Shadows')}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Whites */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium">Whites</span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.whites > 0 ? `+${adjustments.whites}` : adjustments.whites}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={adjustments.whites}
+                  onDoubleClick={() => updateField('whites', 0, 'Reset Whites')}
+                  onChange={(e) => updateField('whites', parseInt(e.target.value, 10), 'Whites')}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Blacks */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium">Blacks</span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.blacks > 0 ? `+${adjustments.blacks}` : adjustments.blacks}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={adjustments.blacks}
+                  onDoubleClick={() => updateField('blacks', 0, 'Reset Blacks')}
+                  onChange={(e) => updateField('blacks', parseInt(e.target.value, 10), 'Blacks')}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Temperature */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium">Temperature</span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.temperature > 0 ? `+${adjustments.temperature}` : adjustments.temperature}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={adjustments.temperature}
+                  onDoubleClick={() => updateField('temperature', 0, 'Reset Temp')}
+                  onChange={(e) => updateField('temperature', parseInt(e.target.value, 10), 'Temperature')}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Tint */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium">Tint</span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.tint > 0 ? `+${adjustments.tint}` : adjustments.tint}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={adjustments.tint}
+                  onDoubleClick={() => updateField('tint', 0, 'Reset Tint')}
+                  onChange={(e) => updateField('tint', parseInt(e.target.value, 10), 'Tint')}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Vibrance */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium">Vibrance</span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.vibrance > 0 ? `+${adjustments.vibrance}` : adjustments.vibrance}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={adjustments.vibrance}
+                  onDoubleClick={() => updateField('vibrance', 0, 'Reset Vibrance')}
+                  onChange={(e) => updateField('vibrance', parseInt(e.target.value, 10), 'Vibrance')}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Saturation */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium">Saturation</span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.saturation > 0 ? `+${adjustments.saturation}` : adjustments.saturation}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={adjustments.saturation}
+                  onDoubleClick={() => updateField('saturation', 0, 'Reset Saturation')}
+                  onChange={(e) => updateField('saturation', parseInt(e.target.value, 10), 'Saturation')}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ADVANCED MODE CONTROLS */}
+        {editMode === 'advanced' && (
+          <>
         {/* 1. LIGHT & EXPOSURE PANEL */}
         <div className="pt-2 first:pt-0 space-y-3">
           <div
@@ -1167,6 +1470,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
     </aside>
   );

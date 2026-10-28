@@ -167,6 +167,13 @@ export interface HistoryEntry {
   adjustments: Adjustments;
 }
 
+export interface Snapshot {
+  id: string;
+  name: string;
+  timestamp: number;
+  adjustments: Adjustments;
+}
+
 export interface PhotoProject {
   id: string;
   name: string;
@@ -179,6 +186,10 @@ export interface PhotoProject {
   adjustments: Adjustments;
   history: HistoryEntry[];
   historyIndex: number;
+  snapshots?: Snapshot[];
+  rating?: number; // 0 to 5
+  flag?: 'pick' | 'reject' | 'none';
+  colorLabel?: 'red' | 'yellow' | 'green' | 'blue' | 'purple' | 'none';
   createdAt: number;
   updatedAt: number;
 }

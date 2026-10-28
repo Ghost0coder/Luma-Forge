@@ -20,11 +20,13 @@ import { TopToolbar } from './components/TopToolbar';
 import { LeftSidebar } from './components/LeftSidebar';
 import { RightSidebar } from './components/RightSidebar';
 import { CanvasViewport } from './components/CanvasViewport';
+import { Filmstrip, FilmstripItem } from './components/Filmstrip';
 import { ExportModal } from './components/ExportModal';
 import { BatchModal } from './components/BatchModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { HomePage } from './pages/HomePage';
 import { Analytics } from '@vercel/analytics/react';
+import { Snapshot } from './types/editor';
 
 export default function App() {
   // Routing state ('home' | 'editor')
@@ -87,8 +89,18 @@ export default function App() {
 
   // UI state
   const [leftSidebarOpen, setLeftSidebarOpen] = useState<boolean>(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState<boolean>(true);
   const [leftTab, setLeftTab] = useState<'library' | 'presets' | 'history'>('presets');
   const [activeMaskId, setActiveMaskId] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<number>(1.0);
+
+  // Snapshots & Filmstrip metadata state
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [flags, setFlags] = useState<Record<string, 'pick' | 'reject' | 'none'>>({});
+  const [colorLabels, setColorLabels] = useState<Record<string, 'red' | 'yellow' | 'green' | 'blue' | 'purple' | 'none'>>({});
+  const [isFilmstripCollapsed, setIsFilmstripCollapsed] = useState<boolean>(false);
+  const [activePhotoId, setActivePhotoId] = useState<string>('sample-portrait');
 
   // AI Photographic Diagnosis & Segmentation
   const [isAIAnalyzing, setIsAIAnalyzing] = useState<boolean>(false);
@@ -102,6 +114,66 @@ export default function App() {
 
   // Hidden file input for import
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Compute Filmstrip Items (combines sample photos & saved projects)
+  const filmstripItems: FilmstripItem[] = [
+    ...SAMPLE_PHOTOS.map((s) => ({
+      id: s.id,
+      title: s.title,
+      url: s.url,
+      category: s.category,
+      isProject: false,
+    })),
+    ...projects.map((p) => ({
+      id: p.id,
+      title: p.name,
+      url: p.imageDataUrl,
+      thumbnailUrl: p.thumbnailUrl,
+      isProject: true,
+    })),
+  ];
+
+  const handleFilmstripSelect = (item: FilmstripItem) => {
+    setActivePhotoId(item.id);
+    if (item.isProject) {
+      handleSelectProject(item.id);
+    } else {
+      const match = SAMPLE_PHOTOS.find((s) => s.id === item.id) || SAMPLE_PHOTOS[0];
+      loadSamplePhoto(match);
+    }
+  };
+
+  const handleFilmstripNext = () => {
+    const currIdx = filmstripItems.findIndex((f) => f.id === activePhotoId);
+    if (currIdx >= 0 && currIdx < filmstripItems.length - 1) {
+      handleFilmstripSelect(filmstripItems[currIdx + 1]);
+    }
+  };
+
+  const handleFilmstripPrev = () => {
+    const currIdx = filmstripItems.findIndex((f) => f.id === activePhotoId);
+    if (currIdx > 0) {
+      handleFilmstripSelect(filmstripItems[currIdx - 1]);
+    }
+  };
+
+  const handleSaveSnapshot = (name: string) => {
+    const newSnap: Snapshot = {
+      id: `snap-${Date.now()}`,
+      name,
+      timestamp: Date.now(),
+      adjustments: cloneAdjustments(adjustments),
+    };
+    setSnapshots((prev) => [...prev, newSnap]);
+  };
+
+  const handleRestoreSnapshot = (snap: Snapshot) => {
+    updateAdjustments(cloneAdjustments(snap.adjustments), `Restore Snapshot: ${snap.name}`);
+  };
+
+  const handleDeleteSnapshot = (id: string) => {
+    setSnapshots((prev) => prev.filter((s) => s.id !== id));
+  };
 
   // Load initial IndexedDB data on mount
   useEffect(() => {
@@ -643,11 +715,12 @@ export default function App() {
         setIsHoldingCompare={setIsHoldingCompare}
         hasImage={!!sourceImage}
         onHomeClick={() => handleNavigate('/')}
+        currentFilename={currentFilename}
       />
 
       {/* WORKSPACE 3-COLUMN LAYOUT */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* LEFT SIDEBAR: Library, Presets, History */}
+        {/* LEFT SIDEBAR: Library, Presets, History & Snapshots */}
         <LeftSidebar
           activeTab={leftTab}
           setActiveTab={setLeftTab}
@@ -670,6 +743,13 @@ export default function App() {
           history={history}
           historyIndex={historyIndex}
           onJumpToHistory={handleJumpToHistory}
+          sourceImage={sourceImage}
+          snapshots={snapshots}
+          onSaveSnapshot={handleSaveSnapshot}
+          onRestoreSnapshot={handleRestoreSnapshot}
+          onDeleteSnapshot={handleDeleteSnapshot}
+          zoom={zoom}
+          onSetZoom={setZoom}
         />
 
         {/* CENTER VIEWPORT: Canvas with Zoom, Pan, Split, Side-by-Side, Crop Overlay */}
@@ -683,7 +763,7 @@ export default function App() {
           activeMaskId={activeMaskId}
         />
 
-        {/* RIGHT SIDEBAR: Live Histogram, AI Enhance, Light, Color, Tone Curve, HSL, Detail, Geometry, Local Masks */}
+        {/* RIGHT SIDEBAR: Live Histogram, Light, Color, Tone Curve, HSL, Detail, Geometry, Local Masks */}
         <RightSidebar
           adjustments={adjustments}
           onChangeAdjustments={updateAdjustments}
@@ -695,8 +775,27 @@ export default function App() {
           setActiveMaskId={setActiveMaskId}
           onGenerateAISubjectMask={handleGenerateAISubjectMask}
           isSegmenting={isSegmenting}
+          isOpen={rightSidebarOpen}
+          onToggleOpen={() => setRightSidebarOpen(!rightSidebarOpen)}
         />
       </div>
+
+      {/* BOTTOM FILMSTRIP */}
+      <Filmstrip
+        items={filmstripItems}
+        activeId={activePhotoId}
+        onSelect={handleFilmstripSelect}
+        onNext={handleFilmstripNext}
+        onPrev={handleFilmstripPrev}
+        ratings={ratings}
+        flags={flags}
+        colorLabels={colorLabels}
+        onSetRating={(id, r) => setRatings((prev) => ({ ...prev, [id]: r }))}
+        onSetFlag={(id, f) => setFlags((prev) => ({ ...prev, [id]: f }))}
+        onSetColorLabel={(id, c) => setColorLabels((prev) => ({ ...prev, [id]: c }))}
+        isCollapsed={isFilmstripCollapsed}
+        onToggleCollapse={() => setIsFilmstripCollapsed(!isFilmstripCollapsed)}
+      />
 
       {/* EXPORT MODAL */}
       <ExportModal

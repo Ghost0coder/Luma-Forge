@@ -13,9 +13,10 @@ import {
   Clock,
   Check,
 } from 'lucide-react';
-import { Preset, HistoryEntry, PhotoProject } from '../types/editor';
+import { Preset, HistoryEntry, PhotoProject, Snapshot } from '../types/editor';
 import { SAMPLE_PHOTOS, SamplePhoto } from '../data/samplePhotos';
 import { exportPresetToFile, parsePresetFile } from '../presets/presetUtils';
+import { Compass, Camera } from 'lucide-react';
 
 interface LeftSidebarProps {
   activeTab: 'library' | 'presets' | 'history';
@@ -39,6 +40,13 @@ interface LeftSidebarProps {
   history: HistoryEntry[];
   historyIndex: number;
   onJumpToHistory: (index: number) => void;
+  sourceImage?: HTMLImageElement | null;
+  snapshots?: Snapshot[];
+  onSaveSnapshot?: (name: string) => void;
+  onRestoreSnapshot?: (snapshot: Snapshot) => void;
+  onDeleteSnapshot?: (id: string) => void;
+  zoom?: number;
+  onSetZoom?: (zoom: number) => void;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
@@ -63,6 +71,13 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
   history,
   historyIndex,
   onJumpToHistory,
+  sourceImage,
+  snapshots = [],
+  onSaveSnapshot,
+  onRestoreSnapshot,
+  onDeleteSnapshot,
+  zoom = 1.0,
+  onSetZoom,
 }) => {
   const [presetCategory, setPresetCategory] = useState<string>('All');
   const [isSavingPreset, setIsSavingPreset] = useState(false);
@@ -198,6 +213,59 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
           <ChevronLeft className="w-4 h-4" />
         </button>
       </div>
+
+      {/* NAVIGATOR SECTION */}
+      {sourceImage && (
+        <div className="p-3 border-b border-[#1b202c] bg-[#0b0e14]">
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-1.5">
+            <span className="flex items-center gap-1.5 text-violet-300 font-semibold uppercase tracking-wider">
+              <Compass className="w-3.5 h-3.5 text-violet-400" />
+              NAVIGATOR
+            </span>
+            <span className="tabular-nums">{Math.round(zoom * 100)}%</span>
+          </div>
+
+          <div className="relative aspect-[4/3] rounded-md overflow-hidden bg-black border border-[#202738] group">
+            <img
+              src={sourceImage.src}
+              alt="Navigator Preview"
+              className="w-full h-full object-contain"
+            />
+            {zoom > 1.0 && (
+              <div
+                className="absolute border-2 border-violet-400 bg-violet-500/20 pointer-events-none rounded-sm transition-all"
+                style={{
+                  width: `${Math.max(20, 100 / zoom)}%`,
+                  height: `${Math.max(20, 100 / zoom)}%`,
+                  top: '25%',
+                  left: '25%',
+                }}
+              />
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-1 mt-2 text-[10px] font-mono">
+            <button
+              onClick={() => onSetZoom?.(0.5)}
+              className="flex-1 py-1 bg-[#141822] hover:bg-[#202738] rounded border border-[#202738] text-slate-300 hover:text-white transition-colors"
+            >
+              FIT
+            </button>
+            <button
+              onClick={() => onSetZoom?.(1.0)}
+              className="flex-1 py-1 bg-[#141822] hover:bg-[#202738] rounded border border-[#202738] text-slate-300 hover:text-white transition-colors"
+            >
+              1:1
+            </button>
+            <button
+              onClick={() => onSetZoom?.(2.0)}
+              className="flex-1 py-1 bg-[#141822] hover:bg-[#202738] rounded border border-[#202738] text-slate-300 hover:text-white transition-colors"
+            >
+              2:1
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* TAB CONTENT */}
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
@@ -467,50 +535,111 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
 
         {/* 3. HISTORY TAB */}
         {activeTab === 'history' && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-              <span>Non-Destructive History</span>
-              <span className="font-mono tabular-nums">{history.length} states</span>
+          <div className="space-y-4">
+            {/* SNAPSHOTS SUB-SECTION */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+                <span className="flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-violet-400" />
+                  Snapshots
+                </span>
+                <button
+                  onClick={() => {
+                    const name = prompt('Enter snapshot name:', `Snapshot ${snapshots.length + 1}`);
+                    if (name && name.trim()) {
+                      onSaveSnapshot?.(name.trim());
+                    }
+                  }}
+                  className="px-2 py-0.5 rounded bg-violet-950/60 hover:bg-violet-900 border border-violet-800/40 text-[11px] font-mono text-violet-300 transition-colors"
+                >
+                  + Create Snapshot
+                </button>
+              </div>
+
+              {snapshots.length === 0 ? (
+                <div className="p-3 rounded-lg bg-[#12151e] border border-[#1d2330] text-center text-[11px] text-slate-500">
+                  Save named edit states (e.g. "Warm Look") to recall them at any time.
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {snapshots.map((snap) => (
+                    <div
+                      key={snap.id}
+                      onClick={() => onRestoreSnapshot?.(snap)}
+                      className="flex items-center justify-between p-2 rounded-md bg-[#141822] hover:bg-[#1a202d] border border-[#202738] text-xs text-slate-200 cursor-pointer transition-colors group"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium truncate text-violet-200 group-hover:text-white">
+                          {snap.name}
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-500">
+                          {new Date(snap.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteSnapshot?.(snap.id);
+                        }}
+                        className="p-1 text-slate-500 hover:text-red-400 rounded transition-colors"
+                        title="Delete snapshot"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {history.length === 0 ? (
-              <div className="p-4 rounded-lg bg-[#12151e] border border-[#1d2330] text-center text-xs text-slate-500">
-                <Clock className="w-6 h-6 mx-auto mb-1.5 text-slate-600" />
-                No edits made yet. Adjust any parameter to build your non-destructive history stack.
+            <hr className="border-[#1b202c]" />
+
+            {/* EDIT HISTORY STACK */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                <span>Non-Destructive History</span>
+                <span className="font-mono tabular-nums">{history.length} states</span>
               </div>
-            ) : (
-              <div className="space-y-1">
-                {history.map((entry, idx) => {
-                  const isCurrent = idx === historyIndex;
-                  const isFuture = idx > historyIndex;
-                  return (
-                    <button
-                      key={entry.id}
-                      onClick={() => onJumpToHistory(idx)}
-                      className={`w-full flex items-center justify-between p-2 rounded-md text-left text-xs transition-colors ${
-                        isCurrent
-                          ? 'bg-violet-950/50 border border-violet-700/60 text-white font-medium'
-                          : isFuture
-                          ? 'bg-[#10131b] text-slate-600 hover:text-slate-400'
-                          : 'bg-[#141822] hover:bg-[#1c2230] text-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            isCurrent ? 'bg-violet-400' : isFuture ? 'bg-slate-700' : 'bg-slate-500'
-                          }`}
-                        />
-                        <span className="truncate">{entry.action}</span>
-                      </div>
-                      <span className="text-[10px] font-mono text-slate-500 shrink-0 ml-2">
-                        {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+
+              {history.length === 0 ? (
+                <div className="p-4 rounded-lg bg-[#12151e] border border-[#1d2330] text-center text-xs text-slate-500">
+                  <Clock className="w-6 h-6 mx-auto mb-1.5 text-slate-600" />
+                  No edits made yet. Adjust any parameter to build your non-destructive history stack.
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {history.map((entry, idx) => {
+                    const isCurrent = idx === historyIndex;
+                    const isFuture = idx > historyIndex;
+                    return (
+                      <button
+                        key={entry.id}
+                        onClick={() => onJumpToHistory(idx)}
+                        className={`w-full flex items-center justify-between p-2 rounded-md text-left text-xs transition-colors ${
+                          isCurrent
+                            ? 'bg-violet-950/50 border border-violet-700/60 text-white font-medium'
+                            : isFuture
+                            ? 'bg-[#10131b] text-slate-600 hover:text-slate-400'
+                            : 'bg-[#141822] hover:bg-[#1c2230] text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isCurrent ? 'bg-violet-400' : isFuture ? 'bg-slate-700' : 'bg-slate-500'
+                            }`}
+                          />
+                          <span className="truncate">{entry.action}</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-500 shrink-0 ml-2">
+                          {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

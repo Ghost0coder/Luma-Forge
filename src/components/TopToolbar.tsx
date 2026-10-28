@@ -29,6 +29,7 @@ interface TopToolbarProps {
   setIsHoldingCompare: (val: boolean) => void;
   hasImage: boolean;
   onHomeClick?: () => void;
+  currentFilename?: string;
 }
 
 export const TopToolbar: React.FC<TopToolbarProps> = React.memo(({
@@ -47,27 +48,37 @@ export const TopToolbar: React.FC<TopToolbarProps> = React.memo(({
   setIsHoldingCompare,
   hasImage,
   onHomeClick,
+  currentFilename,
 }) => {
   return (
     <header className="h-12 w-full bg-[#0e1117] border-b border-[#1b202c] px-4 flex items-center justify-between gap-8 select-none shrink-0 z-30">
-      {/* Zone 1: Brand Wordmark (Single element) */}
-      <button
-        onClick={onHomeClick}
-        title="Return to LumaForge Homepage"
-        className="flex items-center gap-2.5 shrink-0 group hover:opacity-90 transition-opacity cursor-pointer focus:outline-none"
-      >
-        <svg className="w-5 h-5 text-violet-400 group-hover:scale-105 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <circle cx="12" cy="12" r="9" strokeWidth="1.75" />
-          <path d="M12 3v18M3 12h18" strokeWidth="1.2" strokeOpacity="0.3" />
-          <polygon points="12,5 17,12 12,19 7,12" fill="currentColor" fillOpacity="0.25" strokeWidth="1.5" />
-        </svg>
-        <span className="text-sm font-bold tracking-tight text-white group-hover:text-violet-300 transition-colors whitespace-nowrap shrink-0">
-          LumaForge
-        </span>
-        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-950/80 border border-violet-800/40 text-violet-300 hidden sm:inline">
-          Home
-        </span>
-      </button>
+      {/* Zone 1: Brand Wordmark & Active Photo Filename */}
+      <div className="flex items-center gap-3 shrink-0">
+        <button
+          onClick={onHomeClick}
+          title="Return to LumaForge Library & Gallery"
+          className="flex items-center gap-2 shrink-0 group hover:opacity-90 transition-opacity cursor-pointer focus:outline-none"
+        >
+          <svg className="w-5 h-5 text-violet-400 group-hover:scale-105 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="9" strokeWidth="1.75" />
+            <path d="M12 3v18M3 12h18" strokeWidth="1.2" strokeOpacity="0.3" />
+            <polygon points="12,5 17,12 12,19 7,12" fill="currentColor" fillOpacity="0.25" strokeWidth="1.5" />
+          </svg>
+          <span className="text-sm font-bold tracking-tight text-white group-hover:text-violet-300 transition-colors whitespace-nowrap">
+            LumaForge Studio
+          </span>
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-950/80 border border-violet-800/40 text-violet-300 hidden sm:inline">
+            Develop
+          </span>
+        </button>
+
+        {currentFilename && (
+          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#141822] border border-[#202738] text-[11px] font-mono text-slate-300 truncate max-w-[200px]">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+            <span className="truncate">{currentFilename}</span>
+          </div>
+        )}
+      </div>
 
       {/* Zone 2: Navigation & Quick Adjustment Controls (Single-line, no wrap) */}
       <div className="flex items-center gap-1 sm:gap-2 text-xs font-medium text-slate-300 overflow-x-auto no-scrollbar">

@@ -22,7 +22,7 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
       title: 'Natural Light Portrait',
       category: 'Portrait',
       url: samplePortrait,
-      aspect: 'aspect-[3/4]',
+      aspectRatio: '3/4',
       iso: 'ISO 100',
       shutter: '1/400s',
       lens: '85mm f/1.4',
@@ -32,7 +32,7 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
       title: 'Alpine Sunrise Peaks',
       category: 'Landscape',
       url: sampleLandscape,
-      aspect: 'aspect-[16/10]',
+      aspectRatio: '16/10',
       iso: 'ISO 200',
       shutter: '1/125s',
       lens: '24mm f/8',
@@ -42,18 +42,17 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
       title: 'Twilight City Reflections',
       category: 'Street',
       url: sampleStreet,
-      aspect: 'aspect-[4/3]',
+      aspectRatio: '4/3',
       iso: 'ISO 800',
       shutter: '1/60s',
       lens: '35mm f/2.0',
     },
-
     {
       id: 'gallery-architecture',
       title: 'Monolithic Geometry',
       category: 'Architecture',
       url: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80',
-      aspect: 'aspect-[3/4]',
+      aspectRatio: '3/4',
       iso: 'ISO 100',
       shutter: '1/250s',
       lens: '16mm f/5.6',
@@ -63,7 +62,7 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
       title: 'Misty Redwood Forest',
       category: 'Nature',
       url: 'https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=1200&q=80',
-      aspect: 'aspect-[4/3]',
+      aspectRatio: '4/3',
       iso: 'ISO 400',
       shutter: '1/100s',
       lens: '50mm f/2.8',
@@ -73,10 +72,40 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
       title: 'Minimalist Desert Dunes',
       category: 'Landscape',
       url: 'https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?auto=format&fit=crop&w=1200&q=80',
-      aspect: 'aspect-[16/10]',
+      aspectRatio: '16/10',
       iso: 'ISO 100',
       shutter: '1/1000s',
       lens: '70mm f/11',
+    },
+    {
+      id: 'gallery-street-neon',
+      title: 'Cyberpunk Alley Neon',
+      category: 'Street',
+      url: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?auto=format&fit=crop&w=1200&q=80',
+      aspectRatio: '3/4',
+      iso: 'ISO 1600',
+      shutter: '1/125s',
+      lens: '50mm f/1.2',
+    },
+    {
+      id: 'gallery-arch-bridge',
+      title: 'Suspension Bridge Perspective',
+      category: 'Architecture',
+      url: 'https://images.unsplash.com/photo-1506146332389-18140dc7b2fb?auto=format&fit=crop&w=1200&q=80',
+      aspectRatio: '16/9',
+      iso: 'ISO 200',
+      shutter: '1/500s',
+      lens: '24mm f/4.0',
+    },
+    {
+      id: 'gallery-nature-ocean',
+      title: 'Pacific Coast Waves',
+      category: 'Nature',
+      url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80',
+      aspectRatio: '3/2',
+      iso: 'ISO 100',
+      shutter: '1/800s',
+      lens: '35mm f/5.6',
     },
   ];
 
@@ -140,34 +169,31 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
             No photographs found in this category.
           </div>
         ) : (
-          <div className="mt-12 columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6">
+          <div className="mt-12 columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-6 space-y-6">
             {filteredImages.map((img) => (
               <div
                 key={img.id}
                 className="break-inside-avoid mb-6 inline-block w-full group relative rounded-2xl overflow-hidden bg-[#0e121c] border border-[#1e2638] hover:border-violet-500/50 transition-all duration-300 shadow-lg"
               >
                 {/* Photo Image Container */}
-                <div className={`w-full ${img.aspect} overflow-hidden relative bg-slate-950`}>
+                <div className="w-full overflow-hidden relative bg-slate-950">
                   <img
                     src={img.url}
                     alt={img.title}
                     loading="lazy"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    className="w-full h-auto block object-cover group-hover:scale-105 transition-transform duration-500"
                     onError={(e) => {
-                      if (img.id === 'sample-portrait')
+                      if (img.id.includes('portrait'))
                         (e.currentTarget as HTMLImageElement).src =
                           '/samples/sample_portrait_editorial_1793160633779.jpg';
-                      else if (img.id === 'sample-landscape')
+                      else if (img.id.includes('landscape') || img.id.includes('desert') || img.id.includes('ocean'))
                         (e.currentTarget as HTMLImageElement).src =
                           '/samples/sample_landscape_peaks_1793160633388.jpg';
-                      else if (img.id === 'sample-street')
+                      else
                         (e.currentTarget as HTMLImageElement).src =
                           '/samples/sample_street_architecture_1793160634115.jpg';
                     }}
                   />
-
-                  {/* Dark Gradient Overlay on Image Bottom for Depth */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-40 group-hover:opacity-70 transition-opacity pointer-events-none" />
 
                   {/* Top Category Badge */}
                   <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-black/75 backdrop-blur-md text-[11px] font-mono text-violet-300 border border-white/10 shadow-sm">
