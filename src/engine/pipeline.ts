@@ -138,6 +138,290 @@ function getSharedGeomCanvas(width: number, height: number): { canvas: HTMLCanva
 }
 
 /**
+  * Pure pixel buffer adjustment engine
+  * Processes pixel array in-place without DOM dependencies (suitable for Web Worker and main-thread)
+  */
+export function processPixelData(
+  data: Uint8ClampedArray,
+  renderW: number,
+  renderH: number,
+  adjustments: Adjustments
+): void {
+  const len = data.length;
+
+  // Precompute tone curve LUTs & check activity
+  const hasActiveCurves =
+    !isCurveDefault(adjustments.toneCurves.rgb) ||
+    !isCurveDefault(adjustments.toneCurves.red) ||
+    !isCurveDefault(adjustments.toneCurves.green) ||
+    !isCurveDefault(adjustments.toneCurves.blue);
+
+  let lutRgb: Uint8Array | null = null;
+  let lutRed: Uint8Array | null = null;
+  let lutGreen: Uint8Array | null = null;
+  let lutBlue: Uint8Array | null = null;
+
+  if (hasActiveCurves) {
+    lutRgb = generateCurveLUT(adjustments.toneCurves.rgb);
+    lutRed = generateCurveLUT(adjustments.toneCurves.red);
+    lutGreen = generateCurveLUT(adjustments.toneCurves.green);
+    lutBlue = generateCurveLUT(adjustments.toneCurves.blue);
+  }
+
+  // Precompute adjustment factors
+  const exposureMult = Math.pow(2, adjustments.exposure);
+  const brightnessOffset = adjustments.brightness * 1.28; // -128 to 128
+  const contrastFactor = (259 * (adjustments.contrast + 255)) / (255 * (259 - adjustments.contrast));
+  const highlightsFactor = adjustments.highlights / 100;
+  const shadowsFactor = adjustments.shadows / 100;
+  const whitesFactor = adjustments.whites / 100;
+  const blacksFactor = adjustments.blacks / 100;
+
+  // Temperature & Tint
+  const tempOffset = adjustments.temperature / 100;
+  const tintOffset = adjustments.tint / 100;
+  const rTempMult = 1 + tempOffset * 0.25;
+  const bTempMult = 1 - tempOffset * 0.25;
+  const gTintMult = 1 - tintOffset * 0.2;
+  const rbTintMult = 1 + tintOffset * 0.1;
+
+  // Saturation & Vibrance
+  const globalSat = 1 + adjustments.saturation / 100;
+  const vibranceFactor = adjustments.vibrance / 100;
+
+  // Clarity & Dehaze factors
+  const clarityFactor = (adjustments.clarity || 0) / 100;
+  const dehazeFactor = (adjustments.dehaze || 0) / 100;
+
+  // Precompute HSL Mixer & Color Grading active structures
+  const activeHslChannels = prepareHslMixer(adjustments.hslMixer);
+  const isHslActive = activeHslChannels.length > 0;
+
+  const preparedGrading = prepareColorGrading(adjustments.colorGrading);
+  const isGradingActive = preparedGrading.isActive;
+
+  // Vignette parameters
+  const vignetteAmt = adjustments.vignette / 100;
+  const vignetteMid = (adjustments.vignetteMidpoint ?? 50) / 100;
+  const vignetteFeather = Math.max(0.01, (adjustments.vignetteFeather ?? 50) / 100);
+  const centerX = renderW / 2;
+  const centerY = renderH / 2;
+  const maxRadius = Math.hypot(centerX, centerY);
+
+  // Active masks
+  const activeMasks = adjustments.masks.filter((m) => m.enabled);
+  const hasMasks = activeMasks.length > 0;
+
+  // Process all pixels
+  for (let i = 0; i < len; i += 4) {
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+
+    // 1. White balance (temperature / tint)
+    r = r * rTempMult * rbTintMult;
+    g = g * gTintMult;
+    b = b * bTempMult * rbTintMult;
+
+    // 2. Exposure
+    r *= exposureMult;
+    g *= exposureMult;
+    b *= exposureMult;
+
+    // 3. Brightness
+    if (brightnessOffset !== 0) {
+      r += brightnessOffset;
+      g += brightnessOffset;
+      b += brightnessOffset;
+    }
+
+    // 4. Contrast
+    if (adjustments.contrast !== 0) {
+      r = contrastFactor * (r - 128) + 128;
+      g = contrastFactor * (g - 128) + 128;
+      b = contrastFactor * (b - 128) + 128;
+    }
+
+    // Normalized [0, 1] for tone mapping & color science
+    let nr = Math.max(0, Math.min(255, r)) / 255;
+    let ng = Math.max(0, Math.min(255, g)) / 255;
+    let nb = Math.max(0, Math.min(255, b)) / 255;
+
+    // Luminance
+    const lum = 0.2126 * nr + 0.7152 * ng + 0.0722 * nb;
+
+    // 5. Dehaze (atmospheric haze reduction)
+    if (dehazeFactor !== 0) {
+      const dShift = dehazeFactor * 0.08;
+      const dBoost = 1 + dehazeFactor * 0.25;
+      nr = Math.max(0, Math.min(1, (nr - dShift) * dBoost));
+      ng = Math.max(0, Math.min(1, (ng - dShift) * dBoost));
+      nb = Math.max(0, Math.min(1, (nb - dShift) * dBoost));
+    }
+
+    // 6. Clarity (midtone local contrast enhancement)
+    if (clarityFactor !== 0) {
+      const mWeight = Math.max(0, 1 - Math.abs(lum - 0.5) * 2);
+      const cDelta = clarityFactor * mWeight * 0.35;
+      nr = Math.max(0, Math.min(1, nr + (nr - 0.5) * cDelta));
+      ng = Math.max(0, Math.min(1, ng + (ng - 0.5) * cDelta));
+      nb = Math.max(0, Math.min(1, nb + (nb - 0.5) * cDelta));
+    }
+
+    // 7. Highlights and Shadows (smooth knee)
+    if (highlightsFactor !== 0) {
+      const hWeight = Math.max(0, (lum - 0.5) / 0.5);
+      const hDelta = highlightsFactor * hWeight * 0.45;
+      nr += nr * hDelta;
+      ng += ng * hDelta;
+      nb += nb * hDelta;
+    }
+    if (shadowsFactor !== 0) {
+      const sWeight = Math.max(0, (0.5 - lum) / 0.5);
+      const sDelta = shadowsFactor * sWeight * 0.45;
+      nr += (1 - nr) * sDelta;
+      ng += (1 - ng) * sDelta;
+      nb += (1 - nb) * sDelta;
+    }
+
+    // 8. Whites and Blacks
+    if (whitesFactor !== 0) {
+      const wWeight = Math.pow(lum, 2.2);
+      nr += wWeight * whitesFactor * 0.3;
+      ng += wWeight * whitesFactor * 0.3;
+      nb += wWeight * whitesFactor * 0.3;
+    }
+    if (blacksFactor !== 0) {
+      const bWeight = Math.pow(1 - lum, 2.2);
+      nr -= bWeight * blacksFactor * 0.3;
+      ng -= bWeight * blacksFactor * 0.3;
+      nb -= bWeight * blacksFactor * 0.3;
+    }
+
+    nr = Math.max(0, Math.min(1, nr));
+    ng = Math.max(0, Math.min(1, ng));
+    nb = Math.max(0, Math.min(1, nb));
+
+    // 9. Saturation and Vibrance
+    if (globalSat !== 1 || vibranceFactor !== 0) {
+      const [h, s, l] = rgbToHsl(nr, ng, nb);
+      let newS = s * globalSat;
+      if (vibranceFactor !== 0) {
+        // Vibrance protects highly saturated pixels
+        const vibBoost = (1 - s) * vibranceFactor;
+        newS += vibBoost * 0.6;
+      }
+      [nr, ng, nb] = hslToRgb(h, newS, l);
+    }
+
+    // 10. HSL Mixer
+    if (isHslActive) {
+      const [hVal, sVal, lVal] = rgbToHsl(nr, ng, nb);
+      const [mixedH, mixedS, mixedL] = applyHslMixer(hVal, sVal, lVal, activeHslChannels);
+      [nr, ng, nb] = hslToRgb(mixedH, mixedS, mixedL);
+    }
+
+    // 11. Color Grading / Split Toning
+    if (isGradingActive) {
+      [nr, ng, nb] = applyColorGrading(nr, ng, nb, preparedGrading);
+    }
+
+    // Convert back to 0..255 for Tone Curves LUT
+    let cr = Math.round(Math.max(0, Math.min(1, nr)) * 255);
+    let cg = Math.round(Math.max(0, Math.min(1, ng)) * 255);
+    let cb = Math.round(Math.max(0, Math.min(1, nb)) * 255);
+
+    // 12. RGB Tone Curves
+    if (hasActiveCurves && lutRgb && lutRed && lutGreen && lutBlue) {
+      cr = lutRed[lutRgb[cr]];
+      cg = lutGreen[lutRgb[cg]];
+      cb = lutBlue[lutRgb[cb]];
+    }
+
+    // 13. Local Masks
+    if (hasMasks) {
+      const pixelIdx = i / 4;
+      const px = pixelIdx % renderW;
+      const py = Math.floor(pixelIdx / renderW);
+      const nx = px / renderW;
+      const ny = py / renderH;
+
+      for (const mask of activeMasks) {
+        const maskWeight = evaluateMask(mask, nx, ny);
+        if (maskWeight > 0.005) {
+          const adj = mask.adjustments;
+          if (adj.exposure !== 0) {
+            const mExp = Math.pow(2, adj.exposure * maskWeight);
+            cr = Math.min(255, cr * mExp);
+            cg = Math.min(255, cg * mExp);
+            cb = Math.min(255, cb * mExp);
+          }
+          if (adj.contrast !== 0) {
+            const mC = (259 * (adj.contrast * maskWeight + 255)) / (255 * (259 - adj.contrast * maskWeight));
+            cr = Math.max(0, Math.min(255, mC * (cr - 128) + 128));
+            cg = Math.max(0, Math.min(255, mC * (cg - 128) + 128));
+            cb = Math.max(0, Math.min(255, mC * (cb - 128) + 128));
+          }
+          if (adj.saturation !== 0 || adj.temperature !== 0) {
+            let [mh, ms, ml] = rgbToHsl(cr / 255, cg / 255, cb / 255);
+            ms = Math.max(0, Math.min(1, ms * (1 + (adj.saturation / 100) * maskWeight)));
+            mh = (mh + adj.temperature * 0.2 * maskWeight + 360) % 360;
+            const [lr, lg, lb] = hslToRgb(mh, ms, ml);
+            cr = Math.round(lr * 255);
+            cg = Math.round(lg * 255);
+            cb = Math.round(lb * 255);
+          }
+        }
+      }
+    }
+
+    // 14. Vignette
+    if (vignetteAmt !== 0) {
+      const pixelIdx = i / 4;
+      const px = pixelIdx % renderW;
+      const py = Math.floor(pixelIdx / renderW);
+      const dist = Math.hypot(px - centerX, py - centerY) / maxRadius;
+      const startDist = vignetteMid * 0.7;
+      if (dist > startDist) {
+        const t = Math.min(1, (dist - startDist) / vignetteFeather);
+        const vigFactor = 1 - vignetteAmt * (t * t);
+        cr = Math.max(0, Math.min(255, cr * vigFactor));
+        cg = Math.max(0, Math.min(255, cg * vigFactor));
+        cb = Math.max(0, Math.min(255, cb * vigFactor));
+      }
+    }
+
+    data[i] = cr;
+    data[i + 1] = cg;
+    data[i + 2] = cb;
+  }
+
+  // 15. Noise Reduction (edge-preserving spatial low-pass filter)
+  if ((adjustments.noiseReduction || 0) > 0) {
+    applyNoiseReductionInMemory(data, renderW, renderH, adjustments.noiseReduction);
+  }
+
+  // 16. Film Grain & Grain Size
+  if (adjustments.grain > 0) {
+    const grainIntensity = adjustments.grain * 0.7;
+    const grainScale = Math.max(1, Math.round(1 + ((adjustments.grainSize || 0) / 100) * 3));
+    for (let i = 0; i < len; i += 4) {
+      const px = Math.floor(((i / 4) % renderW) / grainScale);
+      const py = Math.floor(Math.floor((i / 4) / renderW) / grainScale);
+      const noise = (seededRandom(px, py, 42) - 0.5) * grainIntensity;
+      data[i] = Math.max(0, Math.min(255, data[i] + noise));
+      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
+      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
+    }
+  }
+
+  // 17. Sharpening (unsharp masking)
+  if (adjustments.sharpening > 0) {
+    applyFastSharpenInMemory(data, renderW, renderH, adjustments.sharpening);
+  }
+}
+
+/**
  * Main non-destructive rendering function
  * Renders sourceImage through the complete adjustment stack onto targetCanvas
  */
@@ -214,260 +498,60 @@ export function renderImageAdjustments(
 
   // Extract pixel buffer for color processing
   const imgData = gctx.getImageData(0, 0, renderW, renderH);
-  const data = imgData.data;
-  const len = data.length;
 
-  // Precompute tone curve LUTs & check activity
-  const hasActiveCurves =
-    !isCurveDefault(adjustments.toneCurves.rgb) ||
-    !isCurveDefault(adjustments.toneCurves.red) ||
-    !isCurveDefault(adjustments.toneCurves.green) ||
-    !isCurveDefault(adjustments.toneCurves.blue);
+  // Execute pure pixel adjustments
+  processPixelData(imgData.data, renderW, renderH, adjustments);
 
-  let lutRgb: Uint8Array | null = null;
-  let lutRed: Uint8Array | null = null;
-  let lutGreen: Uint8Array | null = null;
-  let lutBlue: Uint8Array | null = null;
+  // Write back once
+  ctx.putImageData(imgData, 0, 0);
+}
 
-  if (hasActiveCurves) {
-    lutRgb = generateCurveLUT(adjustments.toneCurves.rgb);
-    lutRed = generateCurveLUT(adjustments.toneCurves.red);
-    lutGreen = generateCurveLUT(adjustments.toneCurves.green);
-    lutBlue = generateCurveLUT(adjustments.toneCurves.blue);
-  }
+/**
+ * Fast edge-preserving spatial noise reduction filter
+ */
+function applyNoiseReductionInMemory(
+  dst: Uint8ClampedArray,
+  width: number,
+  height: number,
+  amount: number
+): void {
+  if (amount <= 0) return;
+  const src = new Uint8ClampedArray(dst);
+  const factor = (amount / 100) * 0.5;
 
-  // Precompute adjustment factors
-  const exposureMult = Math.pow(2, adjustments.exposure);
-  const brightnessOffset = adjustments.brightness * 1.28; // -128 to 128
-  const contrastFactor = (259 * (adjustments.contrast + 255)) / (255 * (259 - adjustments.contrast));
-  const highlightsFactor = adjustments.highlights / 100;
-  const shadowsFactor = adjustments.shadows / 100;
-  const whitesFactor = adjustments.whites / 100;
-  const blacksFactor = adjustments.blacks / 100;
+  for (let y = 1; y < height - 1; y++) {
+    const rowOffset = y * width * 4;
+    const upOffset = (y - 1) * width * 4;
+    const downOffset = (y + 1) * width * 4;
 
-  // Temperature & Tint
-  const tempOffset = adjustments.temperature / 100;
-  const tintOffset = adjustments.tint / 100;
-  const rTempMult = 1 + tempOffset * 0.25;
-  const bTempMult = 1 - tempOffset * 0.25;
-  const gTintMult = 1 - tintOffset * 0.2;
-  const rbTintMult = 1 + tintOffset * 0.1;
+    for (let x = 1; x < width - 1; x++) {
+      const idx = rowOffset + x * 4;
+      const leftIdx = rowOffset + (x - 1) * 4;
+      const rightIdx = rowOffset + (x + 1) * 4;
+      const upIdx = upOffset + x * 4;
+      const downIdx = downOffset + x * 4;
 
-  // Saturation & Vibrance
-  const globalSat = 1 + adjustments.saturation / 100;
-  const vibranceFactor = adjustments.vibrance / 100;
-
-  // Precompute HSL Mixer & Color Grading active structures
-  const activeHslChannels = prepareHslMixer(adjustments.hslMixer);
-  const isHslActive = activeHslChannels.length > 0;
-
-  const preparedGrading = prepareColorGrading(adjustments.colorGrading);
-  const isGradingActive = preparedGrading.isActive;
-
-  // Vignette parameters
-  const vignetteAmt = adjustments.vignette / 100;
-  const vignetteMid = adjustments.vignetteMidpoint / 100;
-  const vignetteFeather = Math.max(0.01, adjustments.vignetteFeather / 100);
-  const centerX = renderW / 2;
-  const centerY = renderH / 2;
-  const maxRadius = Math.hypot(centerX, centerY);
-
-  // Active masks
-  const activeMasks = adjustments.masks.filter((m) => m.enabled);
-  const hasMasks = activeMasks.length > 0;
-
-  // Process all pixels
-  for (let i = 0; i < len; i += 4) {
-    let r = data[i];
-    let g = data[i + 1];
-    let b = data[i + 2];
-
-    // 1. White balance (temperature / tint)
-    r = r * rTempMult * rbTintMult;
-    g = g * gTintMult;
-    b = b * bTempMult * rbTintMult;
-
-    // 2. Exposure
-    r *= exposureMult;
-    g *= exposureMult;
-    b *= exposureMult;
-
-    // 3. Brightness
-    if (brightnessOffset !== 0) {
-      r += brightnessOffset;
-      g += brightnessOffset;
-      b += brightnessOffset;
-    }
-
-    // 4. Contrast
-    if (adjustments.contrast !== 0) {
-      r = contrastFactor * (r - 128) + 128;
-      g = contrastFactor * (g - 128) + 128;
-      b = contrastFactor * (b - 128) + 128;
-    }
-
-    // Normalized [0, 1] for tone mapping & color science
-    let nr = Math.max(0, Math.min(255, r)) / 255;
-    let ng = Math.max(0, Math.min(255, g)) / 255;
-    let nb = Math.max(0, Math.min(255, b)) / 255;
-
-    // Luminance
-    const lum = 0.2126 * nr + 0.7152 * ng + 0.0722 * nb;
-
-    // 5. Highlights and Shadows (smooth knee)
-    if (highlightsFactor !== 0) {
-      const hWeight = Math.max(0, (lum - 0.5) / 0.5);
-      const hDelta = highlightsFactor * hWeight * 0.45;
-      nr += nr * hDelta;
-      ng += ng * hDelta;
-      nb += nb * hDelta;
-    }
-    if (shadowsFactor !== 0) {
-      const sWeight = Math.max(0, (0.5 - lum) / 0.5);
-      const sDelta = shadowsFactor * sWeight * 0.45;
-      nr += (1 - nr) * sDelta;
-      ng += (1 - ng) * sDelta;
-      nb += (1 - nb) * sDelta;
-    }
-
-    // 6. Whites and Blacks
-    if (whitesFactor !== 0) {
-      const wWeight = Math.pow(lum, 2.2);
-      nr += wWeight * whitesFactor * 0.3;
-      ng += wWeight * whitesFactor * 0.3;
-      nb += wWeight * whitesFactor * 0.3;
-    }
-    if (blacksFactor !== 0) {
-      const bWeight = Math.pow(1 - lum, 2.2);
-      nr -= bWeight * blacksFactor * 0.3;
-      ng -= bWeight * blacksFactor * 0.3;
-      nb -= bWeight * blacksFactor * 0.3;
-    }
-
-    nr = Math.max(0, Math.min(1, nr));
-    ng = Math.max(0, Math.min(1, ng));
-    nb = Math.max(0, Math.min(1, nb));
-
-    // 7. Saturation and Vibrance
-    if (globalSat !== 1 || vibranceFactor !== 0) {
-      const [h, s, l] = rgbToHsl(nr, ng, nb);
-      let newS = s * globalSat;
-      if (vibranceFactor !== 0) {
-        // Vibrance protects highly saturated pixels
-        const vibBoost = (1 - s) * vibranceFactor;
-        newS += vibBoost * 0.6;
-      }
-      [nr, ng, nb] = hslToRgb(h, newS, l);
-    }
-
-    // 8. HSL Mixer (only run if HSL Mixer has non-zero adjustments)
-    if (isHslActive) {
-      const [hVal, sVal, lVal] = rgbToHsl(nr, ng, nb);
-      const [mixedH, mixedS, mixedL] = applyHslMixer(hVal, sVal, lVal, activeHslChannels);
-      [nr, ng, nb] = hslToRgb(mixedH, mixedS, mixedL);
-    }
-
-    // 9. Color Grading / Split Toning (only run if color grading is active)
-    if (isGradingActive) {
-      [nr, ng, nb] = applyColorGrading(nr, ng, nb, preparedGrading);
-    }
-
-    // Convert back to 0..255 for Tone Curves LUT
-    let cr = Math.round(Math.max(0, Math.min(1, nr)) * 255);
-    let cg = Math.round(Math.max(0, Math.min(1, ng)) * 255);
-    let cb = Math.round(Math.max(0, Math.min(1, nb)) * 255);
-
-    // 10. RGB Tone Curves
-    if (hasActiveCurves && lutRgb && lutRed && lutGreen && lutBlue) {
-      cr = lutRed[lutRgb[cr]];
-      cg = lutGreen[lutRgb[cg]];
-      cb = lutBlue[lutRgb[cb]];
-    }
-
-    // 11. Local Masks
-    if (hasMasks) {
-      const pixelIdx = i / 4;
-      const px = pixelIdx % renderW;
-      const py = Math.floor(pixelIdx / renderW);
-      const nx = px / renderW;
-      const ny = py / renderH;
-
-      for (const mask of activeMasks) {
-        const maskWeight = evaluateMask(mask, nx, ny);
-        if (maskWeight > 0.005) {
-          const adj = mask.adjustments;
-          if (adj.exposure !== 0) {
-            const mExp = Math.pow(2, adj.exposure * maskWeight);
-            cr = Math.min(255, cr * mExp);
-            cg = Math.min(255, cg * mExp);
-            cb = Math.min(255, cb * mExp);
-          }
-          if (adj.contrast !== 0) {
-            const mC = (259 * (adj.contrast * maskWeight + 255)) / (255 * (259 - adj.contrast * maskWeight));
-            cr = Math.max(0, Math.min(255, mC * (cr - 128) + 128));
-            cg = Math.max(0, Math.min(255, mC * (cg - 128) + 128));
-            cb = Math.max(0, Math.min(255, mC * (cb - 128) + 128));
-          }
-          if (adj.saturation !== 0 || adj.temperature !== 0) {
-            let [mh, ms, ml] = rgbToHsl(cr / 255, cg / 255, cb / 255);
-            ms = Math.max(0, Math.min(1, ms * (1 + (adj.saturation / 100) * maskWeight)));
-            mh = (mh + adj.temperature * 0.2 * maskWeight + 360) % 360;
-            const [lr, lg, lb] = hslToRgb(mh, ms, ml);
-            cr = Math.round(lr * 255);
-            cg = Math.round(lg * 255);
-            cb = Math.round(lb * 255);
-          }
+      for (let c = 0; c < 3; c++) {
+        const center = src[idx + c];
+        const avg = (src[leftIdx + c] + src[rightIdx + c] + src[upIdx + c] + src[downIdx + c]) / 4;
+        const diff = Math.abs(center - avg);
+        if (diff < 25) {
+          dst[idx + c] = Math.round(center * (1 - factor) + avg * factor);
         }
       }
     }
-
-    // 12. Vignette
-    if (vignetteAmt !== 0) {
-      const pixelIdx = i / 4;
-      const px = pixelIdx % renderW;
-      const py = Math.floor(pixelIdx / renderW);
-      const dist = Math.hypot(px - centerX, py - centerY) / maxRadius;
-      const startDist = vignetteMid * 0.7;
-      if (dist > startDist) {
-        const t = Math.min(1, (dist - startDist) / vignetteFeather);
-        const vigFactor = 1 - vignetteAmt * (t * t);
-        cr = Math.max(0, Math.min(255, cr * vigFactor));
-        cg = Math.max(0, Math.min(255, cg * vigFactor));
-        cb = Math.max(0, Math.min(255, cb * vigFactor));
-      }
-    }
-
-    data[i] = cr;
-    data[i + 1] = cg;
-    data[i + 2] = cb;
   }
-
-  // 13. Film Grain
-  if (adjustments.grain > 0) {
-    const grainIntensity = adjustments.grain * 0.7;
-    for (let i = 0; i < len; i += 4) {
-      const px = (i / 4) % renderW;
-      const py = Math.floor((i / 4) / renderW);
-      const noise = (seededRandom(px, py, 42) - 0.5) * grainIntensity;
-      data[i] = Math.max(0, Math.min(255, data[i] + noise));
-      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
-      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
-    }
-  }
-
-  // 14. In-memory Sharpening filter before canvas writeback
-  if (adjustments.sharpening > 0) {
-    applyFastSharpenInMemory(imgData.data, renderW, renderH, adjustments.sharpening);
-  }
-
-  // Put processed image data back once
-  ctx.putImageData(imgData, 0, 0);
 }
 
 /**
  * Fast 3x3 unsharp masking pass directly on Uint8ClampedArray pixel buffer
  */
-function applyFastSharpenInMemory(dst: Uint8ClampedArray, width: number, height: number, amount: number): void {
+function applyFastSharpenInMemory(
+  dst: Uint8ClampedArray,
+  width: number,
+  height: number,
+  amount: number
+): void {
   const src = new Uint8ClampedArray(dst);
   const strength = (amount / 100) * 0.75;
 
@@ -485,10 +569,12 @@ function applyFastSharpenInMemory(dst: Uint8ClampedArray, width: number, height:
 
       for (let c = 0; c < 3; c++) {
         const center = src[idx + c];
-        const neighbors = (src[leftIdx + c] + src[rightIdx + c] + src[upIdx + c] + src[downIdx + c]) / 4;
+        const neighbors =
+          (src[leftIdx + c] + src[rightIdx + c] + src[upIdx + c] + src[downIdx + c]) / 4;
         const diff = center - neighbors;
         dst[idx + c] = Math.max(0, Math.min(255, center + diff * strength));
       }
     }
   }
 }
+

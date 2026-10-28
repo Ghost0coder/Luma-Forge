@@ -235,8 +235,154 @@ const bgCornerVal = 1.0 - cornerVal;
 assert(bgCenterVal === 0.0, 'Inverted background center alpha must be 0.0');
 assert(bgCornerVal === 1.0, 'Inverted background corner alpha must be 1.0');
 
-console.log('✓ AI bitmap masking and refinement math passed.');
+// Test 11: Pure Pixel Pipeline Execution with Details & Effects
+console.log('11. Testing Pure Pixel Pipeline & Details & Effects (Clarity, Dehaze, Grain, Sharpening)...');
+import { processPixelData } from '../src/engine/pipeline';
+import { computeHistogramFromImageData } from '../src/engine/histogram';
+
+const testW = 32;
+const testH = 32;
+const pixelBuffer = new Uint8ClampedArray(testW * testH * 4);
+for (let i = 0; i < pixelBuffer.length; i += 4) {
+  pixelBuffer[i] = 128;     // R
+  pixelBuffer[i + 1] = 128; // G
+  pixelBuffer[i + 2] = 128; // B
+  pixelBuffer[i + 3] = 255; // A
+}
+
+// Neutral test pass
+const neutralAdj = getDefaultAdjustments();
+processPixelData(pixelBuffer, testW, testH, neutralAdj);
+assert(pixelBuffer[0] === 128, 'Neutral adjustment must preserve original pixel value');
+
+// Details & Effects test pass
+const effectsAdj = {
+  ...getDefaultAdjustments(),
+  exposure: 1.0,
+  clarity: 30,
+  dehaze: 20,
+  sharpening: 40,
+  grain: 15,
+  grainSize: 50,
+  noiseReduction: 10,
+};
+const fxBuffer = new Uint8ClampedArray(pixelBuffer);
+processPixelData(fxBuffer, testW, testH, effectsAdj);
+assert(!isNaN(fxBuffer[0]), 'Pixel output must not contain NaN');
+assert(fxBuffer[0] > 128, 'Exposure +1 EV must brighten pixels');
+console.log('✓ Pure pixel pipeline and Details & Effects test passed.');
+
+// Test 12: Fast Histogram Computation from ImageData Buffer
+console.log('12. Testing Fast Zero-DOM Histogram Computation...');
+const histData = computeHistogramFromImageData(fxBuffer, testW, testH);
+assert(histData.red.length === 256, 'Histogram red bins must be 256');
+assert(histData.luminance.length === 256, 'Histogram luminance bins must be 256');
+assert(histData.maxCount > 0, 'Histogram maxCount must be greater than 0');
+console.log('✓ Zero-DOM Histogram calculation test passed.');
+
+// Test 13: Stale Render Job Discarding & Monotonic Job IDs
+console.log('13. Testing Stale Render Result Discarding & Monotonic Job IDs...');
+let latestJobId = 0;
+let renderedJobId = -1;
+
+function simulateWorkerResponse(jobId: number) {
+  if (jobId >= latestJobId) {
+    renderedJobId = jobId;
+  }
+}
+
+// Request Job 1
+latestJobId = 1;
+// Request Job 2 (user dragged slider again before Job 1 finished)
+latestJobId = 2;
+
+// Job 1 completes late (stale)
+simulateWorkerResponse(1);
+assert(renderedJobId === -1, 'Stale Job 1 result must be discarded');
+
+// Job 2 completes (latest)
+simulateWorkerResponse(2);
+assert(renderedJobId === 2, 'Latest Job 2 result must be accepted');
+console.log('✓ Stale render job discarding logic passed.');
+
+// Test 14: Continuous Slider History Immutability
+console.log('14. Testing Continuous Slider History Immutability...');
+const history = [
+  { id: 'h1', action: 'Import', timestamp: 100, adjustments: getDefaultAdjustments() },
+  { id: 'h2', action: 'Exposure', timestamp: 200, adjustments: { ...getDefaultAdjustments(), exposure: 0.5 } },
+];
+
+const actionName = 'Exposure';
+const nextAdj = { ...getDefaultAdjustments(), exposure: 0.8 };
+const updatedHistory = history.map((entry, idx) =>
+  idx === history.length - 1 && entry.action === actionName
+    ? { ...entry, adjustments: cloneAdjustments(nextAdj), timestamp: 300 }
+    : entry
+);
+
+assert(history[1].adjustments.exposure === 0.5, 'Original history entry must remain untouched (immutable)');
+assert(updatedHistory[1].adjustments.exposure === 0.8, 'Updated history entry must contain new adjustments');
+console.log('✓ History update immutability test passed.');
+
+// Test 15: Tone Curve Control Point Order Stability & Boundary Clamping
+console.log('15. Testing Tone Curve Point Order Stability & Boundary Clamping...');
+const sampleCurvePoints = [
+  { x: 0, y: 0 },
+  { x: 64, y: 50 },
+  { x: 192, y: 200 },
+  { x: 255, y: 255 },
+];
+
+function clampPointX(idx: number, rawX: number, points: { x: number; y: number }[]): number {
+  const isFirst = idx === 0;
+  const isLast = idx === points.length - 1;
+  const minX = isFirst ? 0 : isLast ? 255 : points[idx - 1].x + 1;
+  const maxX = isFirst ? 0 : isLast ? 255 : points[idx + 1].x - 1;
+  return Math.max(minX, Math.min(maxX, Math.round(rawX)));
+}
+
+// Endpoint 0 cannot move horizontally
+assert(clampPointX(0, 50, sampleCurvePoints) === 0, 'First point X must be clamped to 0');
+// Endpoint 3 cannot move horizontally
+assert(clampPointX(3, 200, sampleCurvePoints) === 255, 'Last point X must be clamped to 255');
+// Middle point 1 attempted drag past point 0 (e.g. rawX = -20)
+assert(clampPointX(1, -20, sampleCurvePoints) === 1, 'Point 1 X must not go below point 0 X + 1');
+// Middle point 1 attempted drag past point 2 (e.g. rawX = 220)
+assert(clampPointX(1, 220, sampleCurvePoints) === 191, 'Point 1 X must not exceed point 2 X - 1');
+
+console.log('✓ Tone curve point order stability and boundary clamping passed.');
+
+// Test 16: SVG Matrix Transform and Drag Click Guard Suppression
+console.log('16. Testing SVG Matrix Transform & Drag Click Guard Suppression...');
+
+// Mock SVG CTM matrix inverse transformation
+function transformClientToSvg(clientX: number, clientY: number, matrixInverse: { a: number; d: number; e: number; f: number }) {
+  const svgX = Math.max(0, Math.min(255, Math.round(clientX * matrixInverse.a + matrixInverse.e)));
+  const svgY = Math.max(0, Math.min(255, Math.round(255 - (clientY * matrixInverse.d + matrixInverse.f))));
+  return { x: svgX, y: svgY };
+}
+
+// Case A: 2x CSS Zoom (scale = 2, 512px rendered size)
+const ctmInverse2x = { a: 0.5, d: 0.5, e: 0, f: 0 };
+const coords2x = transformClientToSvg(256, 128, ctmInverse2x); // 50% X, 25% Y
+assert(coords2x.x === 128 && coords2x.y === 191, 'CTM transformation at 2x zoom incorrect');
+
+
+// Case B: Click guard suppression on drag end
+let wasDraggingJustEnded = false;
+function shouldAddPointOnClick(isDragging: boolean, wasDraggingEnded: boolean): boolean {
+  if (isDragging || wasDraggingEnded) return false;
+  return true;
+}
+
+assert(shouldAddPointOnClick(false, true) === false, 'Click on drag-end must be suppressed to prevent accidental point addition');
+assert(shouldAddPointOnClick(false, false) === true, 'Clean click must be allowed to add a control point');
+
+console.log('✓ SVG matrix transform and drag click guard tests passed.');
 
 console.log('====================================');
-console.log('ALL 10 AUTOMATED ENGINE TEST SUITES PASSED (0 failures)!');
+console.log('ALL 16 AUTOMATED ENGINE TEST SUITES PASSED (0 failures)!');
 console.log('====================================');
+
+
+

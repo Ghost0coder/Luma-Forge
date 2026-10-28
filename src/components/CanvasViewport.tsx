@@ -12,6 +12,7 @@ import {
 import { Adjustments, LocalMask, BrushPoint } from '../types/editor';
 import { renderImageAdjustments } from '../engine/pipeline';
 import { getDefaultAdjustments } from '../engine/defaultAdjustments';
+import { workerManager } from '../engine/workerManager';
 
 interface CanvasViewportProps {
   sourceImage: HTMLImageElement | null;
@@ -59,7 +60,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
   const animFrameId = useRef<number | null>(null);
 
-  // Re-render pipeline whenever adjustments, sourceImage, or hold state change (with rAF frame-skipping)
   useEffect(() => {
     if (!sourceImage || !canvasRef.current) return;
 
@@ -78,8 +78,15 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       const containerW = containerRef.current?.clientWidth || 1280;
       const maxDim = Math.min(1280, Math.max(800, containerW * (window.devicePixelRatio || 1)));
 
-      renderImageAdjustments(sourceImage, target, adjToRender, { maxDimension: maxDim });
-      onCanvasRendered(target);
+      workerManager.requestRender(
+        sourceImage,
+        target,
+        adjToRender,
+        { maxDimension: maxDim },
+        (targetCanvas) => {
+          onCanvasRendered(targetCanvas);
+        }
+      );
 
       // If split or side-by-side mode is active, render original image into separate canvas
       if (comparisonMode !== 'off' && originalCanvasRef.current) {
