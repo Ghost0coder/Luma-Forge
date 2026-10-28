@@ -15,28 +15,28 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
       id: 'subject' as const,
       title: 'Subject Selection',
       icon: UserCheck,
-      badge: '100% In-Browser Engine',
-      tagline: 'Instant Subject Isolation',
+      badge: '100% Deterministic Engine',
+      tagline: 'Saliency Subject Isolation',
       description:
-        'Isolate portraits, people, or foreground subjects in 15ms. Apply targeted lighting and sharpness without affecting backgrounds.',
+        'Isolate portraits, people, or foreground subjects using local visual saliency and spatial contrast. Apply targeted lighting and sharpness without affecting backgrounds.',
     },
     {
       id: 'background' as const,
-      title: 'Background Separation',
+      title: 'Background Masking',
       icon: Sliders,
-      badge: 'Inverted Smart Mask',
-      tagline: 'Atmospheric & Sky Control',
+      badge: 'Inverted Saliency Mask',
+      tagline: 'Background & Sky Isolation',
       description:
-        'Darken background distracting elements, desaturate distant noise, or add soft background blur while keeping your subject pin-sharp.',
+        'Darken background distracting elements, desaturate distant noise, or add soft background adjustments while keeping your subject pin-sharp.',
     },
     {
       id: 'enhance' as const,
-      title: 'Smart Enhancement',
+      title: 'Smart Auto-Enhance',
       icon: Sparkles,
       badge: 'Histogram Auto-Levels',
-      tagline: 'Intelligent Tone Balancing',
+      tagline: 'Histogram Tone Balancing',
       description:
-        'Analyzes histogram distribution and dynamic range to auto-correct flat exposure, recover blown highlights, and enhance depth.',
+        'Analyzes 256-bin luminance distribution and dynamic range to auto-correct flat exposure, recover blown highlights, and balance gray-world color balance.',
     },
   ];
 
@@ -129,7 +129,7 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
               </div>
 
               <div className="absolute top-3 right-3 z-20 px-2.5 py-1 rounded-md bg-violet-950/80 backdrop-blur-md text-[11px] font-mono text-violet-300 border border-violet-500/30">
-                SEGMENTATION MASK ACTIVE
+                SALIENCY MASK PREVIEW
               </div>
             </div>
 

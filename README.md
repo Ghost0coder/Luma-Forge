@@ -1,6 +1,6 @@
-# LumaForge — Professional AI Photo Editor
+# LumaForge — Professional Non-Destructive Photo Editor
 
-LumaForge is a high-performance, non-destructive, Lightroom-inspired photo editing web application designed for mobile photographers, enthusiasts, and creative professionals. It provides studio-grade raw precision color science, interactive tone curves, an 8-channel HSL color mixer, local gradient and brush masks, Gemini 3.8 Flash photographic scene analysis, and multi-photo batch processing.
+LumaForge is a high-performance, non-destructive, Lightroom-inspired photo editing web application designed for mobile photographers, enthusiasts, and creative professionals. It provides studio-grade raw precision color science, interactive monotone cubic spline tone curves, an 8-channel HSL color mixer, local gradient and brush masks, local visual saliency subject isolation, and multi-photo batch processing — operating 100% locally in-browser with zero external AI API dependencies.
 
 ---
 
@@ -36,12 +36,12 @@ LumaForge is a high-performance, non-destructive, Lightroom-inspired photo editi
 - **Radial Gradient Masks**: Elliptical vignette and subject spotlighting.
 - **Linear Gradient Masks**: Sky darkening and ground balance.
 - **Brush Masks**: Freeform painting directly onto the image canvas.
+- **Visual Saliency Subject & Background Masks**: Multi-seed spatial contrast mask generation for instant local adjustments.
 - Independent local exposure, contrast, saturation, and temperature adjustments with invert toggle.
 
-### 6. AI Photographic Analysis & Auto-Enhancement
-- Powered by **Gemini 3.8 Flash** via server-side proxy (`/api/ai/analyze-photo`).
-- Analyzes scene composition, lighting distribution, dynamic range, and color harmony to produce custom Lightroom-grade parameter recommendations.
-- **100% Offline Heuristic Fallback**: Automatically falls back to client-side gray-world auto-levels and histogram equalization when offline or when no API key is present.
+### 6. Local Heuristic Analysis & Auto-Enhancement
+- **100% Offline Heuristic Auto-Enhance**: Local gray-world color balance and 256-bin luminance histogram dynamic range equalization.
+- Operates entirely client-side without external network calls or server latency.
 
 ### 7. Presets Engine & Batch Editing
 - 8 Curated Built-in Presets: *Cinematic Teal & Orange*, *Editorial Portrait Glow*, *Alpine Vivid Landscape*, *High Contrast Monochrome*, *Golden Hour Glow*, *Analog Kodachrome 1974*, *Moody Twilight Street*, and *Scandinavian Minimal*.
@@ -59,8 +59,8 @@ LumaForge is a high-performance, non-destructive, Lightroom-inspired photo editi
 ## Technical Stack
 
 - **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, Lucide Icons, Motion.
-- **Backend**: Node.js, Express, tsx, `@google/genai` TypeScript SDK.
-- **Color Engine**: Monotone cubic spline interpolation, Rec.709 luminance weighting, sRGB/HSL bi-directional conversions.
+- **Backend / Deployment**: Node.js, Express, tsx.
+- **Color Engine**: Monotone cubic spline interpolation (Fritsch-Carlson), Rec.709 luminance weighting, sRGB/HSL bi-directional conversions.
 - **Storage**: IndexedDB (`LumaForgeDB`).
 
 ---
@@ -72,24 +72,18 @@ LumaForge is a high-performance, non-destructive, Lightroom-inspired photo editi
 npm install
 ```
 
-### 2. Environment Variables
-Copy `.env.example` to `.env` (optional for local heuristics; required for Gemini API):
-```env
-GEMINI_API_KEY="your-gemini-api-key"
-```
-
-### 3. Run Development Server
+### 2. Run Development Server
 ```bash
 npm run dev
 ```
 Open `http://localhost:3000` in your browser.
 
-### 4. Run Automated Test Suite
+### 3. Run Automated Test Suite
 ```bash
 npm test
 ```
 
-### 5. Production Build
+### 4. Production Build
 ```bash
 npm run build
 npm start
