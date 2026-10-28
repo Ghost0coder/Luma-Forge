@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Sparkles, UserCheck, Sliders, ArrowRight, Eye, ShieldCheck } from 'lucide-react';
+import samplePortrait from '../../assets/images/sample_portrait_editorial_1793160633779.jpg';
+
 
 interface AIShowcaseSectionProps {
   onNavigate: (route: string) => void;
@@ -87,10 +89,14 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
             {/* Left: Image Container with Live AI Mask Preview Overlay */}
             <div className="lg:col-span-7 relative aspect-[4/3] rounded-xl overflow-hidden bg-black border border-[#232b3e] group">
               <img
-                src="/src/assets/images/sample_portrait_editorial_1793160633779.jpg"
+                src={samplePortrait}
                 alt="AI Segmentation Sample"
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/samples/sample_portrait_editorial_1793160633779.jpg';
+                }}
               />
+
 
               {/* Ruby Red AI Mask Overlay Effect */}
               {showMaskOverlay && activeTab === 'subject' && (

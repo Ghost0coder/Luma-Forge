@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { Sliders, Sparkles } from 'lucide-react';
 import { SAMPLE_PHOTOS } from '../../data/samplePhotos';
+import samplePortrait from '../../assets/images/sample_portrait_editorial_1793160633779.jpg';
+import sampleLandscape from '../../assets/images/sample_landscape_peaks_1793160633388.jpg';
+import sampleStreet from '../../assets/images/sample_street_architecture_1793160634115.jpg';
 
 interface PhotoGallerySectionProps {
   onNavigate: (route: string) => void;
@@ -18,7 +21,7 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
       id: 'sample-portrait',
       title: 'Natural Light Portrait',
       category: 'Portrait',
-      url: '/src/assets/images/sample_portrait_editorial_1793160633779.jpg',
+      url: samplePortrait,
       aspect: 'aspect-[3/4]',
       iso: 'ISO 100',
       shutter: '1/400s',
@@ -28,7 +31,7 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
       id: 'sample-landscape',
       title: 'Alpine Sunrise Peaks',
       category: 'Landscape',
-      url: '/src/assets/images/sample_landscape_peaks_1793160633388.jpg',
+      url: sampleLandscape,
       aspect: 'aspect-[16/10]',
       iso: 'ISO 200',
       shutter: '1/125s',
@@ -38,12 +41,13 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
       id: 'sample-street',
       title: 'Twilight City Reflections',
       category: 'Street',
-      url: '/src/assets/images/sample_street_architecture_1793160634115.jpg',
+      url: sampleStreet,
       aspect: 'aspect-[4/3]',
       iso: 'ISO 800',
       shutter: '1/60s',
       lens: '35mm f/2.0',
     },
+
     {
       id: 'gallery-architecture',
       title: 'Monolithic Geometry',
@@ -143,7 +147,13 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
                   alt={img.title}
                   loading="lazy"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  onError={(e) => {
+                    if (img.id === 'sample-portrait') (e.currentTarget as HTMLImageElement).src = '/samples/sample_portrait_editorial_1793160633779.jpg';
+                    else if (img.id === 'sample-landscape') (e.currentTarget as HTMLImageElement).src = '/samples/sample_landscape_peaks_1793160633388.jpg';
+                    else if (img.id === 'sample-street') (e.currentTarget as HTMLImageElement).src = '/samples/sample_street_architecture_1793160634115.jpg';
+                  }}
                 />
+
 
                 {/* Dark Gradient Overlay on Hover */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-80 group-hover:opacity-95 transition-opacity" />

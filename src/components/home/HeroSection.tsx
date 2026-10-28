@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { ArrowRight, Sparkles, Sliders, ShieldCheck, Cpu, Zap } from 'lucide-react';
+import sampleLandscape from '../../assets/images/sample_landscape_peaks_1793160633388.jpg';
 
 interface HeroSectionProps {
   onNavigate: (route: string) => void;
@@ -109,24 +110,32 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onNavigate }) => {
               }}
               onMouseMove={handleMouseMove}
               onTouchMove={handleTouchMove}
-              className="relative w-full aspect-[16/9] rounded-xl overflow-hidden cursor-ew-resize select-none group"
+              className="relative w-full aspect-[16/9] rounded-xl overflow-hidden cursor-ew-resize select-none group bg-[#07090d]"
             >
               {/* After (LumaForge Edited Cinematic Version) */}
-              <div
-                className="absolute inset-0 bg-cover bg-center"
+              <img
+                src={sampleLandscape}
+                alt="LumaForge Edited Preview"
+                className="absolute inset-0 w-full h-full object-cover transition-opacity duration-300"
                 style={{
-                  backgroundImage: `url('/src/assets/images/sample_landscape_peaks_1793160633388.jpg')`,
-                  filter: 'contrast(1.15) saturate(1.25) brightness(1.05)',
+                  filter: 'contrast(1.18) saturate(1.28) brightness(1.05)',
+                }}
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/samples/sample_landscape_peaks_1793160633388.jpg';
                 }}
               />
 
-              {/* Before (Raw Original Unedited Version) - Clipped via Slider */}
-              <div
-                className="absolute inset-0 bg-cover bg-center"
+              {/* Before (RAW Original Unedited Version) - Clipped via Slider */}
+              <img
+                src={sampleLandscape}
+                alt="RAW Original Preview"
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
                 style={{
-                  backgroundImage: `url('/src/assets/images/sample_landscape_peaks_1793160633388.jpg')`,
                   filter: 'contrast(0.85) saturate(0.7) brightness(0.9) sepia(0.15)',
                   clipPath: `polygon(0 0, ${sliderPos}% 0, ${sliderPos}% 100%, 0 100%)`,
+                }}
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/samples/sample_landscape_peaks_1793160633388.jpg';
                 }}
               />
 
@@ -161,3 +170,4 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onNavigate }) => {
     </section>
   );
 };
+
