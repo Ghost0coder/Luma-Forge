@@ -31,14 +31,14 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed max-w-sm font-normal">
-              LumaForge is a modern, privacy-first AI photo editing workspace engineered for photographers, creators, and enthusiasts.
+              LumaForge is a modern, privacy-first photo editing workspace engineered for photographers, creators, and enthusiasts.
             </p>
 
             <div className="p-3 rounded-xl bg-[#0c0f17] border border-[#1b2130] flex items-start gap-2.5 text-xs text-slate-300 max-w-sm">
               <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
               <div>
                 <strong className="text-white font-medium block">Privacy Guarantee</strong>
-                All WebGL rendering, tone curve calculations, and MediaPipe AI segmentation execute 100% locally in your browser session.
+                All WebGL rendering, tone curve calculations, and local subject segmentation execute 100% locally in your browser session.
               </div>
             </div>
           </div>
@@ -59,10 +59,10 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
               </li>
               <li>
                 <button
-                  onClick={() => scrollToSection('ai-tools')}
+                  onClick={() => scrollToSection('smart-tools')}
                   className="hover:text-white transition-colors cursor-pointer"
                 >
-                  AI Tools
+                  Smart Tools
                 </button>
               </li>
               <li>
@@ -111,7 +111,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         </div>
 
         <div className="pt-8 border-t border-[#121622] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-mono text-slate-500">
-          <div>© {new Date().getFullYear()} LumaForge AI Photo Studio. All rights reserved.</div>
+          <div>© {new Date().getFullYear()} LumaForge Photo Studio. All rights reserved.</div>
           <div className="flex items-center gap-1 text-slate-400">
             <span>Built with precision & color science for creators</span>
           </div>

@@ -25,15 +25,15 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({ onNavigate }) 
     },
     {
       icon: Wand2,
-      title: 'Intelligent Masks',
+      title: 'Smart Masks',
       description:
-        'Select subjects and backgrounds using local MediaPipe machine learning for targeted exposure, color, and sharpness masks.',
+        'Select subjects and backgrounds using local spatial contrast algorithms for targeted exposure, color, and sharpness masks.',
       color: 'from-indigo-500/20 to-blue-500/5',
       iconColor: 'text-indigo-400',
     },
     {
       icon: Sparkles,
-      title: 'AI Photo Cleanup',
+      title: 'Auto-Enhance',
       description:
         'Instant photographic diagnosis recommending optimal exposure and balance, plus interactive brush-based mask refinement.',
       color: 'from-fuchsia-500/20 to-pink-500/5',

@@ -190,7 +190,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       <div className="p-3 border-b border-[#1b202c] space-y-3 bg-[#0d1016]">
         <HistogramView data={histogramData} />
 
-        {/* AI Auto-Enhance Button */}
+        {/* Auto-Enhance Button */}
         <button
           onClick={onRunAIEnhance}
           disabled={isAIAnalyzing}
@@ -204,21 +204,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           ) : (
             <>
               <Wand2 className="w-3.5 h-3.5 text-violet-200" />
-              <span>AI Auto-Enhance Photo</span>
+              <span>Auto Enhance</span>
             </>
           )}
         </button>
 
-        {/* AI Photographic Diagnosis Box */}
+        {/* Photographic Diagnosis Box */}
         {aiAnalysis && (
           <div className="p-2.5 rounded-lg bg-[#141824] border border-violet-800/40 text-[11px] space-y-1">
             <div className="flex items-center justify-between text-violet-300 font-semibold">
               <span className="flex items-center gap-1">
                 <Sparkles className="w-3 h-3 text-violet-400" />
-                AI Diagnosis
+                Histogram Diagnosis
               </span>
               <span className="text-[10px] text-slate-400 font-mono">
-                {Math.round(aiAnalysis.confidence * 100)}% match
+                {Math.round(aiAnalysis.confidence * 100)}% confidence
               </span>
             </div>
             <p className="text-slate-300">{aiAnalysis.sceneSummary}</p>
@@ -835,14 +835,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
           {openSections.masks && (
             <div className="space-y-3 text-xs">
-              {/* AI Subject & Background Segmentation */}
+              {/* Subject & Background Segmentation */}
               <div className="space-y-1.5 p-2 rounded-lg bg-[#141824] border border-violet-900/40">
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-violet-300 text-[11px] flex items-center gap-1">
                     <Wand2 className="w-3 h-3 text-violet-400" />
-                    AI Neural Masking
+                    Smart Subject Masking
                   </span>
-                  <span className="text-[10px] text-slate-500 font-mono">Apache-2.0 · ~2.5MB</span>
+                  <span className="text-[10px] text-slate-500 font-mono">100% In-Browser</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-1.5">

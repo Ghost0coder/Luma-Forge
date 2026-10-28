@@ -468,16 +468,16 @@ export default function App() {
           ...adjustments,
           ...result.suggestedAdjustments,
         };
-        updateAdjustments(merged, 'AI Auto-Enhance');
+        updateAdjustments(merged, 'Auto-Enhance');
       }
     } catch (err) {
-      console.error('AI Enhance failed:', err);
+      console.error('Auto-Enhance failed:', err);
     } finally {
       setIsAIAnalyzing(false);
     }
   };
 
-  // AI Subject / Background Segmentation runner
+  // Subject / Background Segmentation runner
   const handleGenerateAISubjectMask = async (type: 'ai-subject' | 'ai-background') => {
     if (!sourceImage && !liveCanvasRef.current) return;
     setIsSegmenting(true);
@@ -490,7 +490,7 @@ export default function App() {
       const maskId = `mask-ai-${Date.now()}`;
       const newMask: LocalMask = {
         id: maskId,
-        name: isBg ? 'AI Background Mask' : 'AI Subject Mask',
+        name: isBg ? 'Background Mask' : 'Subject Mask',
         type,
         enabled: true,
         inverted: isBg,
@@ -514,12 +514,12 @@ export default function App() {
       const newMasks = [...adjustments.masks, newMask];
       updateAdjustments(
         { ...adjustments, masks: newMasks },
-        `Add ${isBg ? 'AI Background' : 'AI Subject'} Mask`
+        `Add ${isBg ? 'Background' : 'Subject'} Mask`
       );
       setActiveMaskId(maskId);
     } catch (err) {
-      console.error('AI segmentation failed:', err);
-      alert('AI Subject Segmentation failed. Please try again.');
+      console.error('Subject segmentation failed:', err);
+      alert('Subject Segmentation failed. Please try again.');
     } finally {
       setIsSegmenting(false);
     }

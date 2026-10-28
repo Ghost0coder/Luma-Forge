@@ -40,7 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate }) => {
                 LumaForge
               </span>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 -mt-1">
-                AI Photo Studio
+                Photo Studio
               </span>
             </div>
           </button>
@@ -54,11 +54,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate }) => {
               Features
             </button>
             <button
-              onClick={() => scrollToSection('ai-tools')}
+              onClick={() => scrollToSection('smart-tools')}
               className="hover:text-white transition-colors flex items-center gap-1 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 text-violet-400" />
-              <span>AI Tools</span>
+              <span>Smart Tools</span>
             </button>
             <button
               onClick={() => scrollToSection('presets')}
@@ -128,11 +128,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate }) => {
             Features
           </button>
           <button
-            onClick={() => scrollToSection('ai-tools')}
+            onClick={() => scrollToSection('smart-tools')}
             className="block w-full text-left py-2 text-sm font-medium text-slate-300 hover:text-white flex items-center gap-2"
           >
             <Sparkles className="w-4 h-4 text-violet-400" />
-            <span>AI Tools</span>
+            <span>Smart Tools</span>
           </button>
           <button
             onClick={() => scrollToSection('presets')}

@@ -23,7 +23,7 @@ export const CTASection: React.FC<CTASectionProps> = ({ onNavigate }) => {
           </h2>
 
           <p className="text-slate-300 text-base sm:text-lg max-w-2xl mx-auto font-normal">
-            Open your workspace and start creating with professional light adjustments, 8-channel HSL color science, and local MediaPipe AI segmentation.
+            Open your workspace and start creating with professional light adjustments, 8-channel HSL color science, and local subject segmentation.
           </p>
 
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-4">

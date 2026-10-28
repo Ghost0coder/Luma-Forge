@@ -55,7 +55,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onNavigate }) => {
 
           {/* Supporting Text */}
           <p className="text-base sm:text-lg text-slate-300 leading-relaxed max-w-2xl mx-auto font-normal">
-            Professional photo editing meets intelligent AI. Shape light, refine color, and bring your creative vision to life with LumaForge.
+            Professional photo editing meets standard-setting color science. Shape light, refine color, and bring your creative vision to life with LumaForge.
           </p>
 
           {/* Primary & Secondary CTAs */}
@@ -88,7 +88,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onNavigate }) => {
             </div>
             <div className="flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-[#0e121c] border border-[#1d2436]">
               <Cpu className="w-3.5 h-3.5 text-violet-400 shrink-0" />
-              <span>AI-assisted creativity</span>
+              <span>High-precision color science</span>
             </div>
             <div className="flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-[#0e121c] border border-[#1d2436]">
               <ShieldCheck className="w-3.5 h-3.5 text-violet-400 shrink-0" />

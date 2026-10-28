@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Sparkles, UserCheck, Sliders, ArrowRight, Eye, ShieldCheck } from 'lucide-react';
 import samplePortrait from '../../assets/images/sample_portrait_editorial_1793160633779.jpg';
 
-
 interface AIShowcaseSectionProps {
   onNavigate: (route: string) => void;
 }
@@ -16,7 +15,7 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
       id: 'subject' as const,
       title: 'Subject Selection',
       icon: UserCheck,
-      badge: '100% Local MediaPipe',
+      badge: '100% In-Browser Engine',
       tagline: 'Instant Subject Isolation',
       description:
         'Isolate portraits, people, or foreground subjects in 15ms. Apply targeted lighting and sharpness without affecting backgrounds.',
@@ -25,7 +24,7 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
       id: 'background' as const,
       title: 'Background Separation',
       icon: Sliders,
-      badge: 'Inverted AI Mask',
+      badge: 'Inverted Smart Mask',
       tagline: 'Atmospheric & Sky Control',
       description:
         'Darken background distracting elements, desaturate distant noise, or add soft background blur while keeping your subject pin-sharp.',
@@ -34,7 +33,7 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
       id: 'enhance' as const,
       title: 'Smart Enhancement',
       icon: Sparkles,
-      badge: 'Gemini AI Diagnosis',
+      badge: 'Histogram Auto-Levels',
       tagline: 'Intelligent Tone Balancing',
       description:
         'Analyzes histogram distribution and dynamic range to auto-correct flat exposure, recover blown highlights, and enhance depth.',
@@ -42,7 +41,7 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
   ];
 
   return (
-    <section id="ai-tools" className="py-20 lg:py-28 bg-[#07090d] relative overflow-hidden border-t border-[#171c28]">
+    <section id="smart-tools" className="py-20 lg:py-28 bg-[#07090d] relative overflow-hidden border-t border-[#171c28]">
       {/* Background Accent Glow */}
       <div className="absolute top-1/2 left-0 w-96 h-96 bg-violet-600/10 blur-[130px] rounded-full pointer-events-none" />
 
@@ -51,7 +50,7 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
         <div className="text-center max-w-2xl mx-auto space-y-4">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-950/60 border border-violet-800/40 text-xs font-mono font-medium text-violet-300">
             <Sparkles className="w-3.5 h-3.5 text-violet-400" />
-            <span>INTELLIGENT AI WORKFLOW</span>
+            <span>LOCAL COMPUTATIONAL WORKFLOW</span>
           </div>
           <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
             Less Busywork. More Creativity.
@@ -83,22 +82,21 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
           })}
         </div>
 
-        {/* AI Showcase Visual Preview */}
+        {/* Visual Preview */}
         <div className="mt-10 max-w-5xl mx-auto">
           <div className="bg-[#0f131d] rounded-2xl border border-[#1f2738] p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center shadow-2xl">
-            {/* Left: Image Container with Live AI Mask Preview Overlay */}
+            {/* Left: Image Container with Live Mask Preview Overlay */}
             <div className="lg:col-span-7 relative aspect-[4/3] rounded-xl overflow-hidden bg-black border border-[#232b3e] group">
               <img
                 src={samplePortrait}
-                alt="AI Segmentation Sample"
+                alt="Subject Masking Sample"
                 className="w-full h-full object-cover"
                 onError={(e) => {
                   (e.currentTarget as HTMLImageElement).src = '/samples/sample_portrait_editorial_1793160633779.jpg';
                 }}
               />
 
-
-              {/* Ruby Red AI Mask Overlay Effect */}
+              {/* Ruby Red Mask Overlay Effect */}
               {showMaskOverlay && activeTab === 'subject' && (
                 <div
                   className="absolute inset-0 bg-red-600/40 mix-blend-screen transition-opacity duration-300 pointer-events-none"
@@ -135,7 +133,7 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
               </div>
             </div>
 
-            {/* Right: AI Capability Details */}
+            {/* Right: Capability Details */}
             <div className="lg:col-span-5 space-y-5">
               {showcaseItems
                 .filter((item) => item.id === activeTab)
@@ -173,7 +171,7 @@ export const AIShowcaseSection: React.FC<AIShowcaseSectionProps> = ({ onNavigate
                         onClick={() => onNavigate('/editor')}
                         className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-violet-950/50 cursor-pointer"
                       >
-                        <span>Launch AI Workspace</span>
+                        <span>Launch Editing Workspace</span>
                         <ArrowRight className="w-4 h-4" />
                       </button>
                     </div>

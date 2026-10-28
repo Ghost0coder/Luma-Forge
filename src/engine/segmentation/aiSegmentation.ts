@@ -1,9 +1,7 @@
 /**
- * AI Subject Segmentation Engine for LumaForge
- * Model: MediaPipe Selfie Segmentation (Apache-2.0 License, Google open source)
- * Size: ~2.5 MB (WASM / TFLite)
- * Performance: ~15-40ms on WebGL / WebAssembly
- * Browser Compatibility: Chromium, Safari (Desktop & iOS 14+), Firefox, Edge
+ * Deterministic Subject & Spatial Contrast Masking Engine for LumaForge
+ * Calculates subject probability using spatial contrast, border seeds, and Gaussian saliency priors.
+ * Works 100% offline in-browser with zero network requests or AI inference dependencies.
  */
 
 export interface AISegmentationResult {
@@ -16,54 +14,12 @@ export interface AISegmentationResult {
   inferenceTimeMs: number;
 }
 
-let mediapipeSegmenter: any = null;
-let isInitializing = false;
-
 /**
- * Initializes MediaPipe Selfie Segmentation
+ * High-precision browser-native saliency and spatial contrast segmentation
+ * Works 100% offline in local browser session
  */
-async function getMediaPipeSegmenter(): Promise<any> {
-  if (mediapipeSegmenter) return mediapipeSegmenter;
-  if (isInitializing) {
-    // Wait for ongoing init
-    await new Promise((r) => setTimeout(r, 200));
-    return mediapipeSegmenter;
-  }
-
-  isInitializing = true;
-  try {
-    const mp = await import('@mediapipe/selfie_segmentation');
-    const SelfieSegmentationClass =
-      mp.default?.SelfieSegmentation || (mp as any).SelfieSegmentation;
-
-    if (SelfieSegmentationClass) {
-      const segmenter = new SelfieSegmentationClass({
-        locateFile: (file: string) =>
-          `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`,
-      });
-
-      segmenter.setOptions({
-        modelSelection: 1, // 1: Landscape (faster, high quality), 0: General (256x256)
-      });
-
-      await segmenter.initialize();
-      mediapipeSegmenter = segmenter;
-      return segmenter;
-    }
-  } catch (err) {
-    console.warn('MediaPipe initialization notice: Using local high-precision visual saliency fallback.', err);
-  } finally {
-    isInitializing = false;
-  }
-  return null;
-}
-
-/**
- * High-precision browser-native saliency and spatial contrast segmentation fallback
- * Works 100% offline with zero network requests or dependencies
- */
-function runLocalSaliencySegmentation(
-  canvas: HTMLCanvasElement,
+export function runLocalSaliencySegmentation(
+  canvas: HTMLCanvasElement | HTMLImageElement,
   targetW = 256,
   targetH = 256
 ): number[] {
@@ -152,7 +108,7 @@ function runLocalSaliencySegmentation(
 }
 
 /**
- * Runs AI subject segmentation on a source image or canvas
+ * Runs deterministic subject segmentation on a source image or canvas
  */
 export async function segmentSubject(
   source: HTMLImageElement | HTMLCanvasElement
@@ -161,74 +117,15 @@ export async function segmentSubject(
   const targetW = 256;
   const targetH = 256;
 
-  // Create input canvas
-  const inputCanvas = document.createElement('canvas');
-  inputCanvas.width = targetW;
-  inputCanvas.height = targetH;
-  const ictx = inputCanvas.getContext('2d', { willReadFrequently: true });
-  if (ictx) {
-    ictx.drawImage(source, 0, 0, targetW, targetH);
-  }
-
-  // Attempt MediaPipe inference
-  try {
-    const segmenter = await getMediaPipeSegmenter();
-    if (segmenter) {
-      const bitmap = await new Promise<number[]>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('MediaPipe inference timeout'));
-        }, 3000);
-
-        segmenter.onResults((results: any) => {
-          clearTimeout(timeout);
-          if (results.segmentationMask) {
-            const maskCanvas = document.createElement('canvas');
-            maskCanvas.width = targetW;
-            maskCanvas.height = targetH;
-            const mctx = maskCanvas.getContext('2d', { willReadFrequently: true });
-            if (mctx) {
-              mctx.drawImage(results.segmentationMask, 0, 0, targetW, targetH);
-              const maskData = mctx.getImageData(0, 0, targetW, targetH).data;
-              const alphaValues = new Array(targetW * targetH);
-              for (let i = 0; i < alphaValues.length; i++) {
-                // Red or Alpha channel contains mask probability
-                alphaValues[i] = maskData[i * 4];
-              }
-              resolve(alphaValues);
-              return;
-            }
-          }
-          resolve(runLocalSaliencySegmentation(inputCanvas, targetW, targetH));
-        });
-
-        segmenter.send({ image: inputCanvas }).catch(reject);
-      });
-
-      const elapsed = Math.round(performance.now() - startTime);
-      return {
-        bitmap,
-        width: targetW,
-        height: targetH,
-        modelName: 'MediaPipe Selfie Segmentation',
-        license: 'Apache-2.0 (Permissive Open Source)',
-        downloadSize: '~2.5 MB',
-        inferenceTimeMs: elapsed,
-      };
-    }
-  } catch (err) {
-    console.warn('Falling back to local saliency engine:', err);
-  }
-
-  // Fallback: client-side neural saliency segmentation
-  const bitmap = runLocalSaliencySegmentation(inputCanvas, targetW, targetH);
+  const bitmap = runLocalSaliencySegmentation(source, targetW, targetH);
   const elapsed = Math.round(performance.now() - startTime);
 
   return {
     bitmap,
     width: targetW,
     height: targetH,
-    modelName: 'LumaForge Neural Saliency Segmenter',
-    license: 'MIT / Apache-2.0 Compatible',
+    modelName: 'LumaForge Local Saliency Engine',
+    license: 'MIT / Open Source',
     downloadSize: '0 KB (Local In-Memory)',
     inferenceTimeMs: elapsed,
   };

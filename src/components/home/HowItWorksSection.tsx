@@ -16,7 +16,7 @@ export const HowItWorksSection: React.FC = () => {
       title: 'Create',
       subtitle: 'Refine light, color, details, and local adjustments.',
       description:
-        'Shape exposure, adjust 8-channel HSL color mix, tweak tone curves, or generate MediaPipe AI subject masks with non-destructive undo/redo.',
+        'Shape exposure, adjust 8-channel HSL color mix, tweak tone curves, or generate smart subject masks with non-destructive undo/redo.',
       icon: Sliders,
     },
     {
