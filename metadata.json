@@ -1,0 +1,6 @@
+{
+  "name": "LumaForge - Professional AI Photo Editor",
+  "description": "A professional, non-destructive Lightroom-inspired photo editing web application with high-precision RGB tone curves, HSL mixer, AI enhancement suggestions, local gradient and brush masks, and batch processing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

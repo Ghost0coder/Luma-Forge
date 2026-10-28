@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#11141c"/>
+      <stop offset="100%" stop-color="#0a0c10"/>
+    </linearGradient>
+    <linearGradient id="prism" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.1"/>
+    </linearGradient>
+  </defs>
+  <!-- Background with subtle border -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="#252a36" stroke-width="4"/>
+  
+  <!-- Outer camera aperture ring -->
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#1f2430" stroke-width="12"/>
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#8b5cf6" stroke-width="3" stroke-dasharray="24 16"/>
+
+  <!-- Stylized LumaForge Prism Diamond / Shutter -->
+  <path d="M256 120 L370 234 L256 392 L142 234 Z" fill="url(#prism)" opacity="0.95"/>
+  <path d="M256 120 L256 392" stroke="#ffffff" stroke-width="3" stroke-opacity="0.4"/>
+  <path d="M142 234 L370 234" stroke="#ffffff" stroke-width="2" stroke-opacity="0.3"/>
+  <circle cx="256" cy="234" r="28" fill="#ffffff" opacity="0.9"/>
+  <circle cx="256" cy="234" r="12" fill="#8b5cf6"/>
+</svg>
