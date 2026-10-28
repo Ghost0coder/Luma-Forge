@@ -134,38 +134,52 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
           ))}
         </div>
 
-        {/* Gallery Grid */}
-        <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredImages.map((img) => (
-            <div
-              key={img.id}
-              className="group relative rounded-2xl overflow-hidden bg-[#0e121c] border border-[#1e2638] hover:border-violet-500/50 transition-all duration-300 shadow-lg"
-            >
-              <div className={`w-full ${img.aspect} overflow-hidden relative`}>
-                <img
-                  src={img.url}
-                  alt={img.title}
-                  loading="lazy"
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  onError={(e) => {
-                    if (img.id === 'sample-portrait') (e.currentTarget as HTMLImageElement).src = '/samples/sample_portrait_editorial_1793160633779.jpg';
-                    else if (img.id === 'sample-landscape') (e.currentTarget as HTMLImageElement).src = '/samples/sample_landscape_peaks_1793160633388.jpg';
-                    else if (img.id === 'sample-street') (e.currentTarget as HTMLImageElement).src = '/samples/sample_street_architecture_1793160634115.jpg';
-                  }}
-                />
+        {/* Masonry Gallery Columns */}
+        {filteredImages.length === 0 ? (
+          <div className="mt-12 text-center py-12 text-slate-400 text-sm">
+            No photographs found in this category.
+          </div>
+        ) : (
+          <div className="mt-12 columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6">
+            {filteredImages.map((img) => (
+              <div
+                key={img.id}
+                className="break-inside-avoid mb-6 inline-block w-full group relative rounded-2xl overflow-hidden bg-[#0e121c] border border-[#1e2638] hover:border-violet-500/50 transition-all duration-300 shadow-lg"
+              >
+                {/* Photo Image Container */}
+                <div className={`w-full ${img.aspect} overflow-hidden relative bg-slate-950`}>
+                  <img
+                    src={img.url}
+                    alt={img.title}
+                    loading="lazy"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    onError={(e) => {
+                      if (img.id === 'sample-portrait')
+                        (e.currentTarget as HTMLImageElement).src =
+                          '/samples/sample_portrait_editorial_1793160633779.jpg';
+                      else if (img.id === 'sample-landscape')
+                        (e.currentTarget as HTMLImageElement).src =
+                          '/samples/sample_landscape_peaks_1793160633388.jpg';
+                      else if (img.id === 'sample-street')
+                        (e.currentTarget as HTMLImageElement).src =
+                          '/samples/sample_street_architecture_1793160634115.jpg';
+                    }}
+                  />
 
+                  {/* Dark Gradient Overlay on Image Bottom for Depth */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-40 group-hover:opacity-70 transition-opacity pointer-events-none" />
 
-                {/* Dark Gradient Overlay on Hover */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-80 group-hover:opacity-95 transition-opacity" />
-
-                {/* Top Category Badge */}
-                <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-black/70 backdrop-blur-md text-[11px] font-mono text-violet-300 border border-white/10">
-                  {img.category}
+                  {/* Top Category Badge */}
+                  <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-black/75 backdrop-blur-md text-[11px] font-mono text-violet-300 border border-white/10 shadow-sm">
+                    {img.category}
+                  </div>
                 </div>
 
-                {/* Bottom Details & Action */}
-                <div className="absolute bottom-0 inset-x-0 p-5 z-10 space-y-2">
-                  <h3 className="text-lg font-bold text-white tracking-tight">{img.title}</h3>
+                {/* Card Information & Actions Footer */}
+                <div className="p-4 sm:p-5 space-y-3 bg-[#0e121c] border-t border-[#182030]">
+                  <h3 className="text-base sm:text-lg font-bold text-white tracking-tight leading-snug group-hover:text-violet-300 transition-colors">
+                    {img.title}
+                  </h3>
 
                   <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400">
                     <span>{img.iso}</span>
@@ -175,10 +189,10 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
                     <span>{img.lens}</span>
                   </div>
 
-                  <div className="pt-2">
+                  <div className="pt-1">
                     <button
                       onClick={() => handleLaunchSample(img)}
-                      className="w-full py-2 px-3 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md shadow-violet-950/60 cursor-pointer"
+                      className="w-full py-2.5 px-3 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-md shadow-violet-950/60 cursor-pointer"
                     >
                       <Sliders className="w-3.5 h-3.5" />
                       <span>Edit in LumaForge</span>
@@ -186,9 +200,9 @@ export const PhotoGallerySection: React.FC<PhotoGallerySectionProps> = ({
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );
