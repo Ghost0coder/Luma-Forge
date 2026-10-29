@@ -3,16 +3,15 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
-  Minimize2,
-  Hand,
-  Brush,
   SplitSquareVertical,
   Check,
+  RotateCcw,
 } from 'lucide-react';
-import { Adjustments, LocalMask, BrushPoint } from '../types/editor';
+import { Adjustments } from '../types/editor';
 import { renderImageAdjustments } from '../engine/pipeline';
 import { getDefaultAdjustments } from '../engine/defaultAdjustments';
 import { workerManager } from '../engine/workerManager';
+import { CROP_ASPECT_RATIOS } from '../engine/cropUtils';
 
 interface CanvasViewportProps {
   sourceImage: HTMLImageElement | null;
@@ -22,6 +21,10 @@ interface CanvasViewportProps {
   isHoldingCompare: boolean;
   onCanvasRendered: (canvas: HTMLCanvasElement) => void;
   activeMaskId: string | null;
+  zoom: number;
+  onSetZoom: (zoom: number) => void;
+  zoomMode?: 'fit' | '100%' | '200%' | 'custom';
+  onSetZoomMode?: (mode: 'fit' | '100%' | '200%' | 'custom') => void;
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -32,13 +35,16 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   isHoldingCompare,
   onCanvasRendered,
   activeMaskId,
+  zoom,
+  onSetZoom,
+  zoomMode = 'fit',
+  onSetZoomMode,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Zoom and pan state
-  const [zoom, setZoom] = useState<number>(1.0);
+  // Pan state
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [startPan, setStartPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -47,9 +53,16 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const [splitPos, setSplitPos] = useState<number>(0.5);
   const [isDraggingSplit, setIsDraggingSplit] = useState(false);
 
-  // Crop interaction state
-  const [cropDraggingHandle, setCropDraggingHandle] = useState<string | null>(null);
-  const [cropStart, setCropStart] = useState<{ mx: number; my: number; x: number; y: number; w: number; h: number } | null>(null);
+  // Crop drag/reposition state
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const [cropDragStart, setCropDragStart] = useState<{
+    mx: number;
+    my: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
 
   // Brush painting & refinement state
   const [isBrushing, setIsBrushing] = useState(false);
@@ -57,9 +70,45 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const activeMask = adjustments.masks.find((m) => m.id === activeMaskId);
-
   const animFrameId = useRef<number | null>(null);
 
+  // Fit to screen helper: calculates scale = min(availableWidth / imageWidth, availableHeight / imageHeight)
+  const handleFit = useCallback(() => {
+    if (!containerRef.current || !canvasRef.current) return;
+    const cw = containerRef.current.clientWidth;
+    const ch = containerRef.current.clientHeight;
+    const iw = canvasRef.current.width || 1200;
+    const ih = canvasRef.current.height || 800;
+
+    const availableWidth = Math.max(100, cw - 48);
+    const availableHeight = Math.max(100, ch - 48);
+
+    const scale = Math.min(availableWidth / iw, availableHeight / ih);
+    onSetZoom(Math.max(0.05, Math.min(5.0, scale)));
+    onSetZoomMode?.('fit');
+    setPan({ x: 0, y: 0 });
+  }, [onSetZoom, onSetZoomMode]);
+
+  // Recalculate Fit when the workspace container resizes
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver(() => {
+      if (zoomMode === 'fit') {
+        handleFit();
+      }
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, [zoomMode, handleFit]);
+
+  // Set initial fit on image load
+  useEffect(() => {
+    if (sourceImage) {
+      handleFit();
+    }
+  }, [sourceImage, handleFit]);
+
+  // Render loop using Web Worker with main-thread fallback
   useEffect(() => {
     if (!sourceImage || !canvasRef.current) return;
 
@@ -85,6 +134,9 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         { maxDimension: maxDim },
         (targetCanvas) => {
           onCanvasRendered(targetCanvas);
+          if (zoomMode === 'fit') {
+            handleFit();
+          }
         }
       );
 
@@ -101,7 +153,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         cancelAnimationFrame(animFrameId.current);
       }
     };
-  }, [sourceImage, adjustments, isHoldingCompare, comparisonMode, onCanvasRendered]);
+  }, [sourceImage, adjustments, isHoldingCompare, comparisonMode, onCanvasRendered, zoomMode, handleFit]);
 
   // Render Ruby Mask Overlay preview whenever activeMask changes
   useEffect(() => {
@@ -139,7 +191,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           const px = Math.max(0, Math.min(mw - 1, Math.round(nx * (mw - 1))));
           let val = (bitmap[py * mw + px] ?? 0) / 255.0;
 
-          // Apply refine strokes
           if (refineStrokes.length > 0) {
             for (const stroke of refineStrokes) {
               const dist = Math.hypot(nx - stroke.x, ny - stroke.y);
@@ -156,7 +207,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
           if (val > 0.05) {
             const idx = (y * ow + x) * 4;
-            // Ruby Red / Rose overlay (244, 63, 94) at ~45% max opacity
             data[idx] = 244;
             data[idx + 1] = 63;
             data[idx + 2] = 94;
@@ -168,34 +218,15 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     }
   }, [activeMask]);
 
-  // Fit to screen helper
-  const handleFit = useCallback(() => {
-    if (!containerRef.current || !canvasRef.current) return;
-    const cw = containerRef.current.clientWidth;
-    const ch = containerRef.current.clientHeight;
-    const iw = canvasRef.current.width || 800;
-    const ih = canvasRef.current.height || 600;
-
-    const scale = Math.min((cw - 48) / iw, (ch - 48) / ih, 1.0);
-    setZoom(Math.max(0.1, scale));
-    setPan({ x: 0, y: 0 });
-  }, []);
-
-  // Set initial fit on image load
-  useEffect(() => {
-    if (sourceImage) {
-      handleFit();
-    }
-  }, [sourceImage, handleFit]);
-
   // Wheel zoom handler
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
+    onSetZoomMode?.('custom');
     const factor = e.deltaY < 0 ? 1.12 : 0.88;
-    setZoom((prev) => Math.max(0.1, Math.min(5.0, prev * factor)));
+    onSetZoom(Math.max(0.05, Math.min(6.0, zoom * factor)));
   };
 
-  // Pan handlers
+  // Pan & crop drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     // If clicking split divider
     if (e.target && (e.target as HTMLElement).classList.contains('split-divider-handle')) {
@@ -210,15 +241,38 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       return;
     }
 
-    // If space pressed or middle click or pan mode
-    if (e.button === 1 || e.button === 0) {
-      // Check if brush mask is active and painting
-      if (activeMask && activeMask.type === 'brush' && !e.altKey && !e.shiftKey) {
-        setIsBrushing(true);
-        addBrushPoint(e);
+    // Check if brush mask is active
+    if (e.button === 0 && activeMask && activeMask.type === 'brush' && !e.altKey && !e.shiftKey) {
+      setIsBrushing(true);
+      addBrushPoint(e);
+      return;
+    }
+
+    // Check if clicking inside crop overlay to drag/reposition crop window
+    if (
+      e.button === 0 &&
+      adjustments.crop.active &&
+      (adjustments.crop.width < 0.999 || adjustments.crop.height < 0.999) &&
+      !e.altKey &&
+      !e.shiftKey
+    ) {
+      const targetEl = e.target as HTMLElement;
+      if (targetEl.closest('.crop-drag-surface')) {
+        setIsDraggingCrop(true);
+        setCropDragStart({
+          mx: e.clientX,
+          my: e.clientY,
+          x: adjustments.crop.x,
+          y: adjustments.crop.y,
+          w: adjustments.crop.width,
+          h: adjustments.crop.height,
+        });
         return;
       }
+    }
 
+    // Default to workspace canvas panning
+    if (e.button === 1 || e.button === 0) {
       setIsPanning(true);
       setStartPan({ x: e.clientX - pan.x, y: e.clientY - pan.y });
     }
@@ -274,6 +328,33 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       return;
     }
 
+    // Reposition crop window inside source bounds
+    if (isDraggingCrop && cropDragStart && canvasRef.current) {
+      const targetW = canvasRef.current.width || 1200;
+      const targetH = canvasRef.current.height || 800;
+      const dx = (e.clientX - cropDragStart.mx) / (targetW * zoom);
+      const dy = (e.clientY - cropDragStart.my) / (targetH * zoom);
+
+      const maxMoveX = 1 - cropDragStart.w;
+      const maxMoveY = 1 - cropDragStart.h;
+
+      const newX = Math.max(0, Math.min(maxMoveX, cropDragStart.x - dx));
+      const newY = Math.max(0, Math.min(maxMoveY, cropDragStart.y - dy));
+
+      onChangeAdjustments(
+        {
+          ...adjustments,
+          crop: {
+            ...adjustments.crop,
+            x: newX,
+            y: newY,
+          },
+        },
+        'Reposition Crop'
+      );
+      return;
+    }
+
     if (isPanning) {
       setPan({ x: e.clientX - startPan.x, y: e.clientY - startPan.y });
     }
@@ -284,9 +365,10 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     setIsDraggingSplit(false);
     setIsBrushing(false);
     setIsRefining(false);
+    setIsDraggingCrop(false);
+    setCropDragStart(null);
   };
 
-  // Crop handles logic
   const crop = adjustments.crop;
   const isCropping = crop.active;
 
@@ -312,6 +394,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     );
   }
 
+  const activeRatioOption = CROP_ASPECT_RATIOS.find((r) => r.key === crop.aspectRatio);
+
   return (
     <main
       ref={containerRef}
@@ -327,7 +411,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: 'center center',
-          transition: isPanning ? 'none' : 'transform 0.08s ease-out',
+          transition: isPanning || isDraggingCrop ? 'none' : 'transform 0.08s ease-out',
         }}
         className="relative flex items-center justify-center"
       >
@@ -338,21 +422,21 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
               <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-black/70 text-[10px] font-semibold text-slate-300 backdrop-blur-sm">
                 Original (Before)
               </div>
-              <canvas ref={originalCanvasRef} className="block max-h-[85vh] max-w-[42vw] object-contain" />
+              <canvas ref={originalCanvasRef} className="block object-contain" />
             </div>
 
             <div className="relative shadow-2xl rounded border border-[#202738] overflow-hidden bg-black">
               <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-violet-950/80 text-[10px] font-semibold text-violet-300 border border-violet-700/50 backdrop-blur-sm">
                 Edited (After)
               </div>
-              <canvas ref={canvasRef} className="block max-h-[85vh] max-w-[42vw] object-contain" />
+              <canvas ref={canvasRef} className="block object-contain" />
             </div>
           </div>
         ) : comparisonMode === 'split' ? (
           /* SPLIT-SCREEN COMPARISON MODE */
           <div className="relative shadow-2xl rounded border border-[#202738] overflow-hidden bg-black">
             {/* Edited canvas underneath */}
-            <canvas ref={canvasRef} className="block max-h-[85vh] max-w-[85vw] object-contain" />
+            <canvas ref={canvasRef} className="block object-contain" />
 
             {/* Original canvas clipped to splitPos */}
             <div
@@ -388,7 +472,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         ) : (
           /* STANDARD SINGLE CANVAS VIEW */
           <div className="relative shadow-2xl rounded border border-[#202738] overflow-hidden bg-black">
-            <canvas ref={canvasRef} className="block max-h-[85vh] max-w-[85vw] object-contain" />
+            <canvas ref={canvasRef} className="block object-contain" />
 
             {/* Mask Ruby Red / Rose Preview Overlay */}
             <canvas
@@ -408,23 +492,52 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
             {/* Crop Overlay when Crop is active */}
             {isCropping && (
-              <div className="absolute inset-0 pointer-events-auto border-2 border-dashed border-violet-400 bg-violet-950/10">
+              <div className="crop-drag-surface absolute inset-0 pointer-events-auto border-2 border-dashed border-violet-400 bg-violet-950/15 cursor-move">
                 {/* 3x3 Rule of thirds grid lines */}
                 <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
                   {Array.from({ length: 9 }).map((_, i) => (
-                    <div key={i} className="border border-white/25" />
+                    <div key={i} className="border border-white/20" />
                   ))}
                 </div>
-                <div className="absolute top-2 right-2 bg-black/80 px-2 py-1 rounded text-[11px] text-white flex items-center gap-1.5 backdrop-blur-sm">
-                  <span>Aspect: {crop.aspectRatio.toUpperCase()}</span>
+
+                {/* Floating Aspect Ratio Badge & Actions */}
+                <div className="absolute top-2 right-2 bg-black/85 px-2.5 py-1 rounded-md text-[11px] text-white flex items-center gap-2 backdrop-blur-sm border border-[#2b3348] shadow-lg pointer-events-auto">
+                  <span className="font-semibold text-violet-300">
+                    Ratio: {activeRatioOption?.label || crop.aspectRatio.toUpperCase()}
+                  </span>
                   <button
                     onClick={() =>
                       onChangeAdjustments(
-                        { ...adjustments, crop: { ...crop, active: false } },
-                        'Close Crop'
+                        {
+                          ...adjustments,
+                          crop: {
+                            ...crop,
+                            active: false,
+                            aspectRatio: 'original',
+                            x: 0,
+                            y: 0,
+                            width: 1,
+                            height: 1,
+                          },
+                        },
+                        'Reset Crop'
                       )
                     }
-                    className="p-1 hover:bg-violet-600 rounded text-violet-300 hover:text-white"
+                    className="flex items-center gap-1 px-1.5 py-0.5 hover:bg-red-950/60 hover:text-red-300 text-slate-400 rounded text-[10px] transition-colors cursor-pointer"
+                    title="Reset crop to full original photo"
+                  >
+                    <RotateCcw className="w-2.5 h-2.5" />
+                    <span>Reset</span>
+                  </button>
+                  <button
+                    onClick={() =>
+                      onChangeAdjustments(
+                        { ...adjustments, crop: { ...crop } },
+                        'Apply Crop'
+                      )
+                    }
+                    className="p-1 bg-violet-600 hover:bg-violet-500 rounded text-white shadow-sm transition-colors cursor-pointer"
+                    title="Commit Crop"
                   >
                     <Check className="w-3.5 h-3.5" />
                   </button>
@@ -435,12 +548,15 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         )}
       </div>
 
-      {/* Floating Bottom Toolbar: Zoom & Viewport Controls */}
+      {/* Floating Bottom Toolbar: Zoom & Viewport Controls (Separated from Crop) */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-[#121622]/90 backdrop-blur-md border border-[#232a3b] px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-2 text-xs text-slate-300 z-30">
         <button
-          onClick={() => setZoom((prev) => Math.max(0.1, prev * 0.85))}
-          title="Zoom Out"
-          className="p-1 hover:text-white hover:bg-[#1f2638] rounded-full transition-colors"
+          onClick={() => {
+            onSetZoomMode?.('custom');
+            onSetZoom(Math.max(0.05, zoom * 0.85));
+          }}
+          title="Zoom Out (-)"
+          className="p-1 hover:text-white hover:bg-[#1f2638] rounded-full transition-colors cursor-pointer"
         >
           <ZoomOut className="w-3.5 h-3.5" />
         </button>
@@ -450,9 +566,12 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         </span>
 
         <button
-          onClick={() => setZoom((prev) => Math.min(5.0, prev * 1.15))}
-          title="Zoom In"
-          className="p-1 hover:text-white hover:bg-[#1f2638] rounded-full transition-colors"
+          onClick={() => {
+            onSetZoomMode?.('custom');
+            onSetZoom(Math.min(5.0, zoom * 1.15));
+          }}
+          title="Zoom In (+)"
+          className="p-1 hover:text-white hover:bg-[#1f2638] rounded-full transition-colors cursor-pointer"
         >
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
@@ -461,8 +580,10 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
         <button
           onClick={handleFit}
-          title="Fit to Screen"
-          className="flex items-center gap-1 px-2 py-0.5 hover:text-white hover:bg-[#1f2638] rounded-full transition-colors text-[11px]"
+          title="Fit entire image in workspace without cropping"
+          className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full transition-colors text-[11px] cursor-pointer ${
+            zoomMode === 'fit' ? 'bg-violet-600 text-white font-medium' : 'hover:text-white hover:bg-[#1f2638]'
+          }`}
         >
           <Maximize2 className="w-3 h-3" />
           <span>Fit</span>
@@ -470,13 +591,34 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
         <button
           onClick={() => {
-            setZoom(1.0);
+            onSetZoom(1.0);
+            onSetZoomMode?.('100%');
             setPan({ x: 0, y: 0 });
           }}
-          title="Actual Size (100%)"
-          className="px-2 py-0.5 hover:text-white hover:bg-[#1f2638] rounded-full transition-colors text-[11px]"
+          title="Actual Size (100% / 1:1 pixel scale)"
+          className={`px-2.5 py-0.5 rounded-full transition-colors text-[11px] cursor-pointer ${
+            zoomMode === '100%' || Math.abs(zoom - 1.0) < 0.01
+              ? 'bg-violet-600 text-white font-medium'
+              : 'hover:text-white hover:bg-[#1f2638]'
+          }`}
         >
-          1:1
+          100%
+        </button>
+
+        <button
+          onClick={() => {
+            onSetZoom(2.0);
+            onSetZoomMode?.('200%');
+            setPan({ x: 0, y: 0 });
+          }}
+          title="Double Magnification (200% / 2:1 zoom magnification)"
+          className={`px-2.5 py-0.5 rounded-full transition-colors text-[11px] cursor-pointer ${
+            zoomMode === '200%' || Math.abs(zoom - 2.0) < 0.01
+              ? 'bg-violet-600 text-white font-medium'
+              : 'hover:text-white hover:bg-[#1f2638]'
+          }`}
+        >
+          200%
         </button>
       </div>
     </main>

@@ -29,6 +29,7 @@ import { Adjustments, HistogramData, LocalMask, AIAnalysisResult } from '../type
 import { HistogramView } from './HistogramView';
 import { ToneCurveGraph } from './ToneCurveGraph';
 import { HSLMixerPanel } from './HSLMixerPanel';
+import { CROP_ASPECT_RATIOS, calculateAspectCrop } from '../engine/cropUtils';
 
 interface RightSidebarProps {
   adjustments: Adjustments;
@@ -43,6 +44,7 @@ interface RightSidebarProps {
   isSegmenting?: boolean;
   isOpen?: boolean;
   onToggleOpen?: () => void;
+  sourceImage?: HTMLImageElement | null;
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
@@ -58,6 +60,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   isSegmenting = false,
   isOpen = true,
   onToggleOpen,
+  sourceImage,
 }) => {
   // Mode state: 'basic' vs 'advanced'
   const [editMode, setEditMode] = useState<'basic' | 'advanced'>('basic');
@@ -192,6 +195,38 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     if (activeMaskId === id) setActiveMaskId(null);
   };
 
+  const handleSetAspectRatio = (ratioKey: string) => {
+    const origW = sourceImage?.naturalWidth || 1200;
+    const origH = sourceImage?.naturalHeight || 800;
+
+    if (ratioKey === 'reset') {
+      updateField(
+        'crop',
+        {
+          ...adjustments.crop,
+          active: false,
+          aspectRatio: 'original',
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+        },
+        'Reset Crop'
+      );
+      return;
+    }
+
+    const newCrop = calculateAspectCrop(origW, origH, ratioKey, adjustments.crop.stepRotation);
+    updateField(
+      'crop',
+      {
+        ...adjustments.crop,
+        ...newCrop,
+      },
+      `Aspect Ratio ${ratioKey}`
+    );
+  };
+
   const activeMask = adjustments.masks.find((m) => m.id === activeMaskId);
 
   if (!isOpen) {
@@ -313,7 +348,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       </div>
 
       {/* Scrollable Adjustment Modules */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 divide-y divide-[#1b202c]">
+      <div className="flex-1 overflow-y-auto p-3 pb-32 space-y-3 divide-y divide-[#1b202c]">
         {/* BASIC MODE CONTROLS */}
         {editMode === 'basic' && (
           <div className="space-y-4 pt-1">
@@ -992,28 +1027,40 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               </button>
 
               {/* Aspect Ratio Presets */}
-              <div className="space-y-1">
-                <span className="text-[11px] text-slate-400">Aspect Ratio</span>
-                <div className="grid grid-cols-3 gap-1">
-                  {['original', '1:1', '4:3', '16:9', '3:2', 'free'].map((ratio) => (
-                    <button
-                      key={ratio}
-                      onClick={() =>
-                        updateField(
-                          'crop',
-                          { ...adjustments.crop, aspectRatio: ratio },
-                          `Aspect ${ratio}`
-                        )
-                      }
-                      className={`py-1 text-[11px] rounded transition-colors uppercase ${
-                        adjustments.crop.aspectRatio === ratio
-                          ? 'bg-violet-700 text-white font-medium'
-                          : 'bg-[#151924] hover:bg-[#1e2434] text-slate-400'
-                      }`}
-                    >
-                      {ratio}
-                    </button>
-                  ))}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400 font-medium">Crop Ratio</span>
+                  <button
+                    onClick={() => handleSetAspectRatio('reset')}
+                    className={`font-mono text-[10px] transition-colors cursor-pointer ${
+                      adjustments.crop.active
+                        ? 'text-violet-400 hover:text-violet-300 underline font-semibold'
+                        : 'text-slate-500 cursor-default'
+                    }`}
+                    title="Reset crop and restore original composition"
+                  >
+                    Reset Crop
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
+                  {CROP_ASPECT_RATIOS.map((item) => {
+                    const isSelected =
+                      adjustments.crop.active && adjustments.crop.aspectRatio === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => handleSetAspectRatio(item.key)}
+                        title={`Select ${item.label} crop viewport`}
+                        className={`py-1.5 px-2 text-[11px] rounded transition-colors font-medium text-center cursor-pointer ${
+                          isSelected
+                            ? 'bg-violet-600 text-white shadow-sm ring-1 ring-violet-400'
+                            : 'bg-[#151924] hover:bg-[#1e2434] text-slate-300'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

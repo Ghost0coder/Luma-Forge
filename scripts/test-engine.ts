@@ -3,6 +3,7 @@ import { getDefaultAdjustments, cloneAdjustments } from '../src/engine/defaultAd
 import { applyPresetWithStrength, parsePresetFile, exportPresetToFile } from '../src/presets/presetUtils';
 import { BUILT_IN_PRESETS } from '../src/presets/builtInPresets';
 import { PhotoProject } from '../src/types/editor';
+import { calculateAspectCrop, getExportDimensions, CROP_ASPECT_RATIOS } from '../src/engine/cropUtils';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -167,36 +168,95 @@ assert(restored.history.length === 2, 'Restored history length mismatch');
 assert(restored.historyIndex === 1, 'Restored historyIndex mismatch');
 console.log('✓ Project serialization and session restoration passed.');
 
-// Test 8: Export Dimension Calculations & Rotation Handlers
-console.log('8. Testing Export Dimension & Orientation Calculations...');
-const origW = 3840;
-const origH = 2160;
+// Test 8: Authoritative Aspect Ratio, Crop Geometry & Export Dimension Regression Tests
+console.log('8. Testing Aspect Ratio Calculations, Crop Geometry & Export Dimensions...');
 
-// Case A: Uncropped, 100% scale
-let isRotated90 = false;
-let cropW = 1.0;
-let cropH = 1.0;
-let scale = 1.0;
-let uncroppedW = isRotated90 ? origH : origW;
-let uncroppedH = isRotated90 ? origW : origH;
-let finalW = Math.round(uncroppedW * cropW * scale);
-let finalH = Math.round(uncroppedH * cropH * scale);
-assert(finalW === 3840 && finalH === 2160, '100% full-resolution dimensions incorrect');
+// 8.1 Landscape Photo (3840 x 2160, 16:9)
+const landW = 3840;
+const landH = 2160;
 
-// Case B: Rotated 90 degrees
-isRotated90 = true;
-uncroppedW = isRotated90 ? origH : origW;
-uncroppedH = isRotated90 ? origW : origH;
-finalW = Math.round(uncroppedW * cropW * scale);
-finalH = Math.round(uncroppedH * cropH * scale);
-assert(finalW === 2160 && finalH === 3840, 'Rotated 90° export dimensions incorrect');
+// Test 1:1 Square crop on landscape photo
+const land1x1 = calculateAspectCrop(landW, landH, '1:1');
+assert(land1x1.active === true, '1:1 crop must be active');
+assert(land1x1.aspectRatio === '1:1', 'aspectRatio must be 1:1');
+assert(land1x1.width <= 1.0 && land1x1.height <= 1.0, 'Dimensions must be bounded');
+assert(land1x1.x >= 0 && land1x1.y >= 0, 'Offsets must be positive');
+const land1x1Export = getExportDimensions(landW, landH, land1x1 as any, 1.0);
+assert(land1x1Export.width === land1x1Export.height, `1:1 on landscape must be square: ${land1x1Export.width}x${land1x1Export.height}`);
+assert(land1x1Export.width === 2160 && land1x1Export.height === 2160, '1:1 crop must be 2160x2160');
 
-// Case C: 50% scale
-scale = 0.5;
-finalW = Math.round(uncroppedW * cropW * scale);
-finalH = Math.round(uncroppedH * cropH * scale);
-assert(finalW === 1080 && finalH === 1920, '50% scaled export dimensions incorrect');
-console.log('✓ Export dimensions and orientation calculations passed.');
+// Test 2:1 Landscape crop on landscape photo
+const land2x1 = calculateAspectCrop(landW, landH, '2:1');
+assert(land2x1.active === true, '2:1 crop must be active');
+assert(land2x1.aspectRatio === '2:1', 'aspectRatio must be 2:1');
+const land2x1Export = getExportDimensions(landW, landH, land2x1 as any, 1.0);
+const aspect2x1 = land2x1Export.width / land2x1Export.height;
+assert(Math.abs(aspect2x1 - 2.0) < 0.005, `2:1 crop must be 2:1 ratio: ${land2x1Export.width}x${land2x1Export.height}`);
+assert(land2x1Export.width === 3840 && land2x1Export.height === 1920, '2:1 crop must be 3840x1920');
+
+// Switching from 1:1 to 2:1 visibly changes crop rectangle
+assert(land1x1.width !== land2x1.width || land1x1.height !== land2x1.height, 'Switching 1:1 to 2:1 must change rectangle');
+
+// 8.2 Portrait Photo (2000 x 3000, 2:3)
+const portW = 2000;
+const portH = 3000;
+
+// Test 1:1 on portrait photo
+const port1x1 = calculateAspectCrop(portW, portH, '1:1');
+const port1x1Export = getExportDimensions(portW, portH, port1x1 as any, 1.0);
+assert(port1x1Export.width === port1x1Export.height, `1:1 on portrait must be square: ${port1x1Export.width}x${port1x1Export.height}`);
+assert(port1x1Export.width === 2000 && port1x1Export.height === 2000, '1:1 on portrait must be 2000x2000');
+
+// Test 2:1 on portrait photo
+const port2x1 = calculateAspectCrop(portW, portH, '2:1');
+const port2x1Export = getExportDimensions(portW, portH, port2x1 as any, 1.0);
+assert(Math.abs((port2x1Export.width / port2x1Export.height) - 2.0) < 0.005, `2:1 on portrait must be 2:1: ${port2x1Export.width}x${port2x1Export.height}`);
+assert(port2x1Export.width === 2000 && port2x1Export.height === 1000, '2:1 on portrait must be 2000x1000');
+
+// Test 4:5 on portrait photo
+const port4x5 = calculateAspectCrop(portW, portH, '4:5');
+const port4x5Export = getExportDimensions(portW, portH, port4x5 as any, 1.0);
+assert(Math.abs((port4x5Export.width / port4x5Export.height) - 0.8) < 0.005, `4:5 on portrait must be 0.8: ${port4x5Export.width}x${port4x5Export.height}`);
+assert(port4x5Export.width === 2000 && port4x5Export.height === 2500, '4:5 on portrait must be 2000x2500');
+
+// 8.3 Square Photo (1500 x 1500, 1:1)
+const sqW = 1500;
+const sqH = 1500;
+const sq2x1 = calculateAspectCrop(sqW, sqH, '2:1');
+const sq2x1Export = getExportDimensions(sqW, sqH, sq2x1 as any, 1.0);
+assert(Math.abs((sq2x1Export.width / sq2x1Export.height) - 2.0) < 0.005, '2:1 on square photo must be 2:1');
+assert(sq2x1Export.width === 1500 && sq2x1Export.height === 750, '2:1 on square must be 1500x750');
+
+// 8.4 Verify every ratio in selector produces valid, strictly non-overlapping bounds
+for (const opt of CROP_ASPECT_RATIOS) {
+  const cropResult = calculateAspectCrop(landW, landH, opt.key);
+  assert(cropResult.x >= 0 && cropResult.x <= 1, `${opt.key}: x must be in [0, 1]`);
+  assert(cropResult.y >= 0 && cropResult.y <= 1, `${opt.key}: y must be in [0, 1]`);
+  assert(cropResult.width > 0 && cropResult.width <= 1, `${opt.key}: width must be in (0, 1]`);
+  assert(cropResult.height > 0 && cropResult.height <= 1, `${opt.key}: height must be in (0, 1]`);
+  assert(cropResult.x + cropResult.width <= 1.0001, `${opt.key}: x + width cannot exceed 1`);
+  assert(cropResult.y + cropResult.height <= 1.0001, `${opt.key}: y + height cannot exceed 1`);
+}
+
+// 8.5 Repeated ratio switching does not accumulate rounding drift
+let current = calculateAspectCrop(landW, landH, '1:1');
+for (let cycle = 0; cycle < 5; cycle++) {
+  current = calculateAspectCrop(landW, landH, '2:1');
+  current = calculateAspectCrop(landW, landH, '16:9');
+  current = calculateAspectCrop(landW, landH, '4:3');
+  current = calculateAspectCrop(landW, landH, '1:1');
+}
+assert(current.width === land1x1.width && current.height === land1x1.height, 'Repeated switching must preserve exact dimensions');
+
+// 8.6 Rotation 90° Handling and scaling
+const rotCrop = calculateAspectCrop(landW, landH, '1:1', 90);
+const rotExport100 = getExportDimensions(landW, landH, { ...rotCrop, stepRotation: 90, rotation: 0, flipH: false, flipV: false }, 1.0);
+assert(rotExport100.width === rotExport100.height && rotExport100.width === 2160, 'Rotated 90° 1:1 export must be 2160x2160');
+
+const rotExport50 = getExportDimensions(landW, landH, { ...rotCrop, stepRotation: 90, rotation: 0, flipH: false, flipV: false }, 0.5);
+assert(rotExport50.width === 1080 && rotExport50.height === 1080, '50% scaled export must be 1080x1080');
+
+console.log('✓ Aspect ratio, crop geometry and export dimension regression tests passed.');
 
 // Test 9: Image Format & MIME Validation
 console.log('9. Testing Image Import Format Validation...');

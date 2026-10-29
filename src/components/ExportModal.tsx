@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Download, FileImage, Check } from 'lucide-react';
 import { Adjustments } from '../types/editor';
 import { renderImageAdjustments } from '../engine/pipeline';
+import { getExportDimensions } from '../engine/cropUtils';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -32,15 +33,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const origH = sourceImage.naturalHeight || sourceImage.height;
 
   // Compute final dimensions after crop & scale
-  const crop = adjustments.crop;
-  const isRotated90 = crop.stepRotation === 90 || crop.stepRotation === 270;
-  const uncroppedW = isRotated90 ? origH : origW;
-  const uncroppedH = isRotated90 ? origW : origH;
-  const cropW = crop.active ? crop.width : 1;
-  const cropH = crop.active ? crop.height : 1;
-
-  const finalW = Math.round(uncroppedW * cropW * scale);
-  const finalH = Math.round(uncroppedH * cropH * scale);
+  const { width: finalW, height: finalH } = getExportDimensions(origW, origH, adjustments.crop, scale);
 
   const handleExport = async () => {
     setIsExporting(true);

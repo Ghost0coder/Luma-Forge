@@ -93,6 +93,7 @@ export default function App() {
   const [leftTab, setLeftTab] = useState<'library' | 'presets' | 'history'>('presets');
   const [activeMaskId, setActiveMaskId] = useState<string | null>(null);
   const [zoom, setZoom] = useState<number>(1.0);
+  const [zoomMode, setZoomMode] = useState<'fit' | '100%' | '200%' | 'custom'>('fit');
 
   // Snapshots & Filmstrip metadata state
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
@@ -749,7 +750,11 @@ export default function App() {
           onRestoreSnapshot={handleRestoreSnapshot}
           onDeleteSnapshot={handleDeleteSnapshot}
           zoom={zoom}
-          onSetZoom={setZoom}
+          onSetZoom={(z) => {
+            setZoom(z);
+            setZoomMode(z === 1.0 ? '100%' : z === 2.0 ? '200%' : 'custom');
+          }}
+          onFit={() => setZoomMode('fit')}
         />
 
         {/* CENTER VIEWPORT: Canvas with Zoom, Pan, Split, Side-by-Side, Crop Overlay */}
@@ -761,6 +766,10 @@ export default function App() {
           isHoldingCompare={isHoldingCompare}
           onCanvasRendered={handleCanvasRendered}
           activeMaskId={activeMaskId}
+          zoom={zoom}
+          onSetZoom={setZoom}
+          zoomMode={zoomMode}
+          onSetZoomMode={setZoomMode}
         />
 
         {/* RIGHT SIDEBAR: Live Histogram, Light, Color, Tone Curve, HSL, Detail, Geometry, Local Masks */}
@@ -777,6 +786,7 @@ export default function App() {
           isSegmenting={isSegmenting}
           isOpen={rightSidebarOpen}
           onToggleOpen={() => setRightSidebarOpen(!rightSidebarOpen)}
+          sourceImage={sourceImage}
         />
       </div>
 

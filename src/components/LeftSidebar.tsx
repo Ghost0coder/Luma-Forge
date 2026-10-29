@@ -47,6 +47,7 @@ interface LeftSidebarProps {
   onDeleteSnapshot?: (id: string) => void;
   zoom?: number;
   onSetZoom?: (zoom: number) => void;
+  onFit?: () => void;
 }
 
 export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
@@ -78,6 +79,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
   onDeleteSnapshot,
   zoom = 1.0,
   onSetZoom,
+  onFit,
 }) => {
   const [presetCategory, setPresetCategory] = useState<string>('All');
   const [isSavingPreset, setIsSavingPreset] = useState(false);
@@ -246,29 +248,40 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
 
           <div className="flex items-center justify-between gap-1 mt-2 text-[10px] font-mono">
             <button
-              onClick={() => onSetZoom?.(0.5)}
-              className="flex-1 py-1 bg-[#141822] hover:bg-[#202738] rounded border border-[#202738] text-slate-300 hover:text-white transition-colors"
+              onClick={() => onFit?.()}
+              title="Fit complete image inside workspace"
+              className="flex-1 py-1 bg-[#141822] hover:bg-[#202738] rounded border border-[#202738] text-slate-300 hover:text-white transition-colors cursor-pointer"
             >
               FIT
             </button>
             <button
               onClick={() => onSetZoom?.(1.0)}
-              className="flex-1 py-1 bg-[#141822] hover:bg-[#202738] rounded border border-[#202738] text-slate-300 hover:text-white transition-colors"
+              title="Actual size (100% / 1:1 pixel scale)"
+              className={`flex-1 py-1 rounded border border-[#202738] transition-colors cursor-pointer ${
+                Math.abs(zoom - 1.0) < 0.01
+                  ? 'bg-violet-600 text-white font-medium'
+                  : 'bg-[#141822] hover:bg-[#202738] text-slate-300 hover:text-white'
+              }`}
             >
-              1:1
+              100%
             </button>
             <button
               onClick={() => onSetZoom?.(2.0)}
-              className="flex-1 py-1 bg-[#141822] hover:bg-[#202738] rounded border border-[#202738] text-slate-300 hover:text-white transition-colors"
+              title="Double magnification (200% / 2:1 zoom)"
+              className={`flex-1 py-1 rounded border border-[#202738] transition-colors cursor-pointer ${
+                Math.abs(zoom - 2.0) < 0.01
+                  ? 'bg-violet-600 text-white font-medium'
+                  : 'bg-[#141822] hover:bg-[#202738] text-slate-300 hover:text-white'
+              }`}
             >
-              2:1
+              200%
             </button>
           </div>
         </div>
       )}
 
       {/* TAB CONTENT */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+      <div className="flex-1 overflow-y-auto p-3 pb-28 space-y-4">
         {/* 1. LIBRARY TAB */}
         {activeTab === 'library' && (
           <div className="space-y-4">
