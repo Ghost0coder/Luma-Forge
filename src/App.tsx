@@ -1,11 +1,33 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Adjustments, HistogramData, HistoryEntry, PhotoProject, Preset, AIAnalysisResult, LocalMask } from './types/editor';
+import {
+  Adjustments,
+  HistogramData,
+  HistoryEntry,
+  PhotoProject,
+  Preset,
+  AIAnalysisResult,
+  LocalMask,
+  Snapshot,
+  WorkspaceMode,
+  SelectionState,
+  RetouchState,
+  BackgroundRemovalState,
+} from './types/editor';
 import { getDefaultAdjustments, cloneAdjustments } from './engine/defaultAdjustments';
 import { BUILT_IN_PRESETS } from './presets/builtInPresets';
 import { applyPresetWithStrength } from './presets/presetUtils';
 import { computeHistogram } from './engine/histogram';
-import { analyzePhoto } from './services/aiService';
+import { analyzePhoto, checkAIStatus, removeObjectOrWatermark } from './services/aiService';
 import { segmentSubject } from './engine/segmentation/aiSegmentation';
+import { detectAndSegmentPeople } from './engine/segmentation/peopleSegmentation';
+import {
+  invertSelectionMask,
+  expandSelectionMask,
+  contractSelectionMask,
+  featherSelectionMask,
+  applyAdjustmentsToSelection,
+} from './engine/selection/selectionEngine';
+import { extractSubjectMask, exportTransparentPNG } from './engine/segmentation/backgroundRemover';
 import {
   saveProject,
   getAllProjects,
@@ -25,8 +47,10 @@ import { ExportModal } from './components/ExportModal';
 import { BatchModal } from './components/BatchModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { HomePage } from './pages/HomePage';
+import { SelectPanel } from './components/workspaces/SelectPanel';
+import { RemovePanel } from './components/workspaces/RemovePanel';
+import { BackgroundPanel } from './components/workspaces/BackgroundPanel';
 import { Analytics } from '@vercel/analytics/react';
-import { Snapshot } from './types/editor';
 
 export default function App() {
   // Routing state ('home' | 'editor')
@@ -51,6 +75,9 @@ export default function App() {
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  // Workspace Mode: 'develop' | 'select' | 'remove' | 'background'
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('develop');
 
   // Main photo state
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null);
@@ -115,6 +142,78 @@ export default function App() {
 
   // Hidden file input for import
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 1. Traditional Object Selection Workspace State
+  const [selectionState, setSelectionState] = useState<SelectionState>({
+    mode: 'brush',
+    operation: 'add',
+    brushSize: 40,
+    brushFeather: 10,
+    tolerance: 30,
+    contiguous: true,
+    polygonPoints: [],
+    lassoPoints: [],
+    maskBitmap: null,
+    maskWidth: 1200,
+    maskHeight: 800,
+    hasSelection: false,
+    isDetectingPeople: false,
+    personInfo: null,
+    localAdjustments: {
+      exposure: 0,
+      contrast: 0,
+      saturation: 0,
+      temperature: 0,
+      sharpness: 0,
+    },
+  });
+
+  // 2. Retouch (Object & Watermark Removal) Workspace State
+  const [retouchState, setRetouchState] = useState<RetouchState>({
+    brushSize: 32,
+    hardness: 80,
+    feather: 8,
+    mode: 'add',
+    toolMode: 'person',
+    maskBitmap: null,
+    maskWidth: 1200,
+    maskHeight: 800,
+    hasMask: false,
+    isProcessing: false,
+    algorithm: 'ai',
+    error: null,
+    successMessage: null,
+  });
+
+  // 3. Background Removal Workspace State
+  const [backgroundState, setBackgroundState] = useState<BackgroundRemovalState>({
+    enabled: false,
+    isProcessing: false,
+    modelType: 'none',
+    maskBitmap: null,
+    maskWidth: 384,
+    maskHeight: 384,
+    mode: 'transparent',
+    color: '#ffffff',
+    blurRadius: 12,
+    customBgUrl: null,
+    feather: 4,
+    edgeShift: 0,
+    error: null,
+  });
+
+  const [serverAIConfigured, setServerAIConfigured] = useState<boolean>(false);
+
+  // Check server AI status on mount
+  useEffect(() => {
+    checkAIStatus()
+      .then((status) => {
+        setServerAIConfigured(status.configured);
+      })
+      .catch(() => {
+        setServerAIConfigured(false);
+      });
+  }, []);
 
   // Compute Filmstrip Items (combines sample photos & saved projects)
   const filmstripItems: FilmstripItem[] = [
@@ -214,6 +313,36 @@ export default function App() {
       setAdjustments(defaultAdj);
       setActivePresetId(null);
       setAiAnalysis(null);
+
+      // Reset workspace masks to match new photo dimensions
+      setSelectionState((prev) => ({
+        ...prev,
+        maskBitmap: null,
+        maskWidth: img.width,
+        maskHeight: img.height,
+        hasSelection: false,
+        isDetectingPeople: false,
+        personInfo: null,
+        polygonPoints: [],
+        lassoPoints: [],
+      }));
+      setRetouchState((prev) => ({
+        ...prev,
+        maskBitmap: null,
+        maskWidth: img.width,
+        maskHeight: img.height,
+        hasMask: false,
+        toolMode: 'person',
+        error: null,
+        successMessage: null,
+      }));
+      setBackgroundState((prev) => ({
+        ...prev,
+        maskBitmap: null,
+        modelType: 'none',
+        error: null,
+      }));
+
       setHistory([
         {
           id: `hist-${Date.now()}`,
@@ -252,6 +381,35 @@ export default function App() {
         setActivePresetId(null);
         setAiAnalysis(null);
 
+        // Reset workspace masks
+        setSelectionState((prev) => ({
+          ...prev,
+          maskBitmap: null,
+          maskWidth: img.width,
+          maskHeight: img.height,
+          hasSelection: false,
+          isDetectingPeople: false,
+          personInfo: null,
+          polygonPoints: [],
+          lassoPoints: [],
+        }));
+        setRetouchState((prev) => ({
+          ...prev,
+          maskBitmap: null,
+          maskWidth: img.width,
+          maskHeight: img.height,
+          hasMask: false,
+          toolMode: 'person',
+          error: null,
+          successMessage: null,
+        }));
+        setBackgroundState((prev) => ({
+          ...prev,
+          maskBitmap: null,
+          modelType: 'none',
+          error: null,
+        }));
+
         const newProjectId = `proj-${Date.now()}`;
         setCurrentProjectId(newProjectId);
 
@@ -281,8 +439,8 @@ export default function App() {
           name: file.name,
           imageDataUrl: dataUrl,
           thumbnailUrl: thumbUrl,
-          width: img.naturalWidth,
-          height: img.naturalHeight,
+          width: img.width,
+          height: img.height,
           fileSize: file.size,
           mimeType: file.type,
           adjustments: defaultAdj,
@@ -382,154 +540,214 @@ export default function App() {
     [history, historyIndex, currentProjectId, saveProjectToDBDebounced]
   );
 
-  // Undo / Redo
+  // Undo
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
-      const prevIdx = historyIndex - 1;
-      setHistoryIndex(prevIdx);
-      setAdjustments(cloneAdjustments(history[prevIdx].adjustments));
+      const newIdx = historyIndex - 1;
+      const targetState = history[newIdx].adjustments;
+      setHistoryIndex(newIdx);
+      setAdjustments(cloneAdjustments(targetState));
+      if (currentProjectId) {
+        saveProjectToDBDebounced(currentProjectId, targetState, history, newIdx);
+      }
     }
-  }, [historyIndex, history]);
+  }, [historyIndex, history, currentProjectId, saveProjectToDBDebounced]);
 
+  // Redo
   const handleRedo = useCallback(() => {
     if (historyIndex < history.length - 1) {
-      const nextIdx = historyIndex + 1;
-      setHistoryIndex(nextIdx);
-      setAdjustments(cloneAdjustments(history[nextIdx].adjustments));
+      const newIdx = historyIndex + 1;
+      const targetState = history[newIdx].adjustments;
+      setHistoryIndex(newIdx);
+      setAdjustments(cloneAdjustments(targetState));
+      if (currentProjectId) {
+        saveProjectToDBDebounced(currentProjectId, targetState, history, newIdx);
+      }
     }
-  }, [historyIndex, history]);
+  }, [historyIndex, history, currentProjectId, saveProjectToDBDebounced]);
 
-  // Jump to specific history state
-  const handleJumpToHistory = (idx: number) => {
-    if (idx >= 0 && idx < history.length) {
-      setHistoryIndex(idx);
-      setAdjustments(cloneAdjustments(history[idx].adjustments));
-    }
-  };
-
-  // Reset all adjustments
+  // Reset to initial unedited photo
   const handleReset = () => {
     const defaultAdj = getDefaultAdjustments();
-    updateAdjustments(defaultAdj, 'Reset All Adjustments');
-    setActivePresetId(null);
+    updateAdjustments(defaultAdj, 'Reset Adjustments');
   };
 
-  // Preset application with strength
-  const handleApplyPreset = (preset: Preset, strength = 1.0) => {
-    setActivePresetId(preset.id);
-    setPresetStrength(strength);
-    const newAdj = applyPresetWithStrength(adjustments, preset, strength);
-    updateAdjustments(newAdj, `Apply Preset: ${preset.name}`);
-  };
-
-  const handlePresetStrengthChange = (strength: number) => {
-    setPresetStrength(strength);
-    const allPresets = [...BUILT_IN_PRESETS, ...customPresets];
-    const preset = allPresets.find((p) => p.id === activePresetId);
-    if (preset) {
-      const baseAdj = historyIndex > 0 ? history[0].adjustments : getDefaultAdjustments();
-      const newAdj = applyPresetWithStrength(baseAdj, preset, strength);
-      setAdjustments(newAdj);
+  // Jump to specific point in history
+  const handleJumpToHistory = (index: number) => {
+    if (index >= 0 && index < history.length) {
+      setHistoryIndex(index);
+      setAdjustments(cloneAdjustments(history[index].adjustments));
+      if (currentProjectId) {
+        saveProjectToDBDebounced(currentProjectId, history[index].adjustments, history, index);
+      }
     }
-  };
-
-  // Custom preset saving
-  const handleSaveCustomPreset = async (name: string, description: string) => {
-    const newPreset: Preset = {
-      id: `custom-${Date.now()}`,
-      name,
-      category: 'Custom',
-      description,
-      adjustments: cloneAdjustments(adjustments),
-      createdAt: Date.now(),
-      isCustom: true,
-    };
-    await saveCustomPreset(newPreset);
-    const stored = await getAllCustomPresets();
-    setCustomPresets(stored);
-    setActivePresetId(newPreset.id);
-  };
-
-  const handleDeleteCustomPreset = async (id: string) => {
-    await deleteCustomPreset(id);
-    const stored = await getAllCustomPresets();
-    setCustomPresets(stored);
-    if (activePresetId === id) setActivePresetId(null);
-  };
-
-  const handleImportCustomPreset = async (preset: Preset) => {
-    await saveCustomPreset(preset);
-    const stored = await getAllCustomPresets();
-    setCustomPresets(stored);
-    handleApplyPreset(preset);
   };
 
   // Select project from library
-  const handleSelectProject = (id: string) => {
-    const proj = projects.find((p) => p.id === id);
+  const handleSelectProject = (projectId: string) => {
+    const proj = projects.find((p) => p.id === projectId);
     if (!proj) return;
+
     const img = new Image();
     img.onload = () => {
       setSourceImage(img);
       setCurrentFilename(proj.name);
       setCurrentProjectId(proj.id);
-      setAdjustments(proj.adjustments);
-      setHistory(proj.history || [{ id: '1', action: 'Loaded session', timestamp: Date.now(), adjustments: proj.adjustments }]);
+      setAdjustments(cloneAdjustments(proj.adjustments));
+      setHistory(proj.history.length > 0 ? proj.history : [
+        {
+          id: `hist-${Date.now()}`,
+          action: `Open ${proj.name}`,
+          timestamp: Date.now(),
+          adjustments: proj.adjustments,
+        },
+      ]);
       setHistoryIndex(proj.historyIndex || 0);
-      setActivePresetId(null);
+      setSnapshots(proj.snapshots || []);
+
+      // Update workspace dimensions
+      setSelectionState((prev) => ({
+        ...prev,
+        maskBitmap: null,
+        maskWidth: img.width,
+        maskHeight: img.height,
+        hasSelection: false,
+        isDetectingPeople: false,
+        personInfo: null,
+        polygonPoints: [],
+        lassoPoints: [],
+      }));
+      setRetouchState((prev) => ({
+        ...prev,
+        maskBitmap: null,
+        maskWidth: img.width,
+        maskHeight: img.height,
+        hasMask: false,
+        toolMode: 'person',
+        error: null,
+        successMessage: null,
+      }));
     };
     img.src = proj.imageDataUrl;
   };
 
-  const handleDeleteProject = async (id: string) => {
-    await deleteProjectById(id);
-    const stored = await getAllProjects();
-    setProjects(stored);
-    if (currentProjectId === id) {
+  // Delete project from library
+  const handleDeleteProject = async (projectId: string) => {
+    await deleteProjectById(projectId);
+    setProjects((prev) => prev.filter((p) => p.id !== projectId));
+    if (currentProjectId === projectId) {
       loadSamplePhoto(SAMPLE_PHOTOS[0]);
     }
   };
 
-  // Batch operations
-  const handleBatchApplyPresetToProjects = async (projectIds: string[], preset: Preset) => {
-    for (const projId of projectIds) {
-      const proj = projects.find((p) => p.id === projId);
-      if (proj) {
-        const newAdj = applyPresetWithStrength(proj.adjustments, preset, 1.0);
-        await saveProject({ ...proj, adjustments: newAdj, updatedAt: Date.now() });
-      }
-    }
-    const stored = await getAllProjects();
-    setProjects(stored);
+  // Apply preset with slider strength
+  const handleApplyPreset = (preset: Preset) => {
+    setActivePresetId(preset.id);
+    const updated = applyPresetWithStrength(adjustments, preset, presetStrength);
+    updateAdjustments(updated, `Apply Preset: ${preset.name}`);
   };
 
-  const handleBatchPasteAdjustments = async (projectIds: string[], targetAdj: Adjustments) => {
-    for (const projId of projectIds) {
-      const proj = projects.find((p) => p.id === projId);
-      if (proj) {
-        await saveProject({ ...proj, adjustments: cloneAdjustments(targetAdj), updatedAt: Date.now() });
-      }
+  const handlePresetStrengthChange = (strength: number) => {
+    setPresetStrength(strength);
+    if (!activePresetId) return;
+    const allPresets = [...BUILT_IN_PRESETS, ...customPresets];
+    const match = allPresets.find((p) => p.id === activePresetId);
+    if (match) {
+      const updated = applyPresetWithStrength(adjustments, match, strength);
+      updateAdjustments(updated, `Preset Strength (${Math.round(strength * 100)}%)`);
     }
-    const stored = await getAllProjects();
-    setProjects(stored);
   };
 
-  // Callback from CanvasViewport when frame renders: computes live histogram
-  const animFrameRef = useRef<number | null>(null);
+  // Save current adjustments as a custom preset
+  const handleSaveCustomPreset = async (name: string, category: any) => {
+    const newPreset: Preset = {
+      id: `custom-preset-${Date.now()}`,
+      name,
+      category,
+      description: 'Custom user defined photographic style profile',
+      adjustments: cloneAdjustments(adjustments),
+      createdAt: Date.now(),
+      isCustom: true,
+    };
+    await saveCustomPreset(newPreset);
+    setCustomPresets((prev) => [newPreset, ...prev]);
+  };
 
+  const handleImportCustomPreset = async (preset: Preset) => {
+    await saveCustomPreset(preset);
+    setCustomPresets((prev) => [preset, ...prev]);
+  };
+
+  const handleDeleteCustomPreset = async (presetId: string) => {
+    await deleteCustomPreset(presetId);
+    setCustomPresets((prev) => prev.filter((p) => p.id !== presetId));
+  };
+
+  // Batch paste current adjustments across selected library projects
+  const handleBatchPasteAdjustments = async (targetProjectIds: string[]) => {
+    for (const id of targetProjectIds) {
+      const proj = projects.find((p) => p.id === id);
+      if (proj) {
+        const nextHist = [
+          ...proj.history,
+          {
+            id: `hist-${Date.now()}`,
+            action: 'Batch Applied Adjustments',
+            timestamp: Date.now(),
+            adjustments: cloneAdjustments(adjustments),
+          },
+        ];
+        const updated: PhotoProject = {
+          ...proj,
+          adjustments: cloneAdjustments(adjustments),
+          history: nextHist,
+          historyIndex: nextHist.length - 1,
+          updatedAt: Date.now(),
+        };
+        await saveProject(updated);
+      }
+    }
+    const fresh = await getAllProjects();
+    setProjects(fresh);
+  };
+
+  // Batch apply preset across target projects
+  const handleBatchApplyPresetToProjects = async (targetProjectIds: string[], preset: Preset) => {
+    for (const id of targetProjectIds) {
+      const proj = projects.find((p) => p.id === id);
+      if (proj) {
+        const mergedAdj = applyPresetWithStrength(proj.adjustments, preset, 1.0);
+        const nextHist = [
+          ...proj.history,
+          {
+            id: `hist-${Date.now()}`,
+            action: `Batch Preset: ${preset.name}`,
+            timestamp: Date.now(),
+            adjustments: mergedAdj,
+          },
+        ];
+        const updated: PhotoProject = {
+          ...proj,
+          adjustments: mergedAdj,
+          history: nextHist,
+          historyIndex: nextHist.length - 1,
+          updatedAt: Date.now(),
+        };
+        await saveProject(updated);
+      }
+    }
+    const fresh = await getAllProjects();
+    setProjects(fresh);
+  };
+
+  // Canvas rendered callback: update live canvas ref and recompute live histogram
   const handleCanvasRendered = useCallback((canvas: HTMLCanvasElement) => {
     liveCanvasRef.current = canvas;
-    if (animFrameRef.current !== null) return;
-    animFrameRef.current = requestAnimationFrame(() => {
-      animFrameRef.current = null;
-      if (liveCanvasRef.current) {
-        const hist = computeHistogram(liveCanvasRef.current);
-        setHistogramData(hist);
-      }
-    });
+    const hist = computeHistogram(canvas);
+    setHistogramData(hist);
   }, []);
 
-  // AI Auto-Enhance runner
+  // Run AI Photographic Diagnosis
   const handleRunAIEnhance = async () => {
     if (!liveCanvasRef.current) return;
     setIsAIAnalyzing(true);
@@ -537,65 +755,367 @@ export default function App() {
       const result = await analyzePhoto(liveCanvasRef.current);
       setAiAnalysis(result);
       if (result.suggestedAdjustments) {
-        const merged: Adjustments = {
+        const enhanced = {
           ...adjustments,
           ...result.suggestedAdjustments,
         };
-        updateAdjustments(merged, 'Auto-Enhance');
+        updateAdjustments(enhanced, 'AI Auto Enhance');
       }
     } catch (err) {
-      console.error('Auto-Enhance failed:', err);
+      console.error('AI analysis error:', err);
     } finally {
       setIsAIAnalyzing(false);
     }
   };
 
-  // Subject / Background Segmentation runner
+  // Run AI Subject / Background Mask Generation
   const handleGenerateAISubjectMask = async (type: 'ai-subject' | 'ai-background') => {
-    if (!sourceImage && !liveCanvasRef.current) return;
+    if (!liveCanvasRef.current) return;
     setIsSegmenting(true);
-
     try {
-      const source = liveCanvasRef.current || sourceImage!;
-      const result = await segmentSubject(source);
-
-      const isBg = type === 'ai-background';
-      const maskId = `mask-ai-${Date.now()}`;
+      const result = await segmentSubject(liveCanvasRef.current);
+      const newMaskId = `mask-ai-${Date.now()}`;
       const newMask: LocalMask = {
-        id: maskId,
-        name: isBg ? 'Background Mask' : 'Subject Mask',
+        id: newMaskId,
+        name: type === 'ai-subject' ? 'Subject Isolation Mask' : 'Background Mask',
         type,
         enabled: true,
-        inverted: isBg,
+        inverted: type === 'ai-background',
         opacity: 1.0,
-        showOverlay: true,
         maskBitmap: result.bitmap,
         maskWidth: result.width,
         maskHeight: result.height,
+        showOverlay: true,
         refineMode: 'none',
-        refineRadius: 0.06,
-        refineStrokes: [],
         adjustments: {
-          exposure: isBg ? -0.4 : 0.35,
-          contrast: isBg ? -10 : 15,
-          saturation: isBg ? -15 : 12,
-          temperature: isBg ? -5 : 4,
-          sharpness: isBg ? -20 : 15,
+          exposure: type === 'ai-subject' ? 0.35 : -0.25,
+          contrast: type === 'ai-subject' ? 12 : -5,
+          saturation: type === 'ai-subject' ? 8 : -10,
+          temperature: 0,
+          sharpness: type === 'ai-subject' ? 20 : 0,
         },
       };
 
-      const newMasks = [...adjustments.masks, newMask];
-      updateAdjustments(
-        { ...adjustments, masks: newMasks },
-        `Add ${isBg ? 'Background' : 'Subject'} Mask`
-      );
-      setActiveMaskId(maskId);
+      const updated = {
+        ...adjustments,
+        masks: [...adjustments.masks, newMask],
+      };
+      updateAdjustments(updated, `Generate ${type === 'ai-subject' ? 'Subject' : 'Background'} Mask`);
+      setActiveMaskId(newMaskId);
     } catch (err) {
-      console.error('Subject segmentation failed:', err);
-      alert('Subject Segmentation failed. Please try again.');
+      console.error('Segmentation error:', err);
     } finally {
       setIsSegmenting(false);
     }
+  };
+
+  // ================= WORKSPACE 1: SELECTION HANDLERS =================
+  const handleInvertSelection = () => {
+    if (!selectionState.maskBitmap) return;
+    const inverted = invertSelectionMask(selectionState.maskBitmap);
+    setSelectionState((prev) => ({ ...prev, maskBitmap: inverted }));
+  };
+
+  const handleExpandSelection = () => {
+    if (!selectionState.maskBitmap) return;
+    const expanded = expandSelectionMask(
+      selectionState.maskBitmap,
+      selectionState.maskWidth,
+      selectionState.maskHeight,
+      4
+    );
+    setSelectionState((prev) => ({ ...prev, maskBitmap: expanded }));
+  };
+
+  const handleContractSelection = () => {
+    if (!selectionState.maskBitmap) return;
+    const contracted = contractSelectionMask(
+      selectionState.maskBitmap,
+      selectionState.maskWidth,
+      selectionState.maskHeight,
+      4
+    );
+    setSelectionState((prev) => ({ ...prev, maskBitmap: contracted }));
+  };
+
+  const handleFeatherSelection = () => {
+    if (!selectionState.maskBitmap) return;
+    const feathered = featherSelectionMask(
+      selectionState.maskBitmap,
+      selectionState.maskWidth,
+      selectionState.maskHeight,
+      4
+    );
+    setSelectionState((prev) => ({ ...prev, maskBitmap: feathered }));
+  };
+
+  const handleClearSelection = () => {
+    setSelectionState((prev) => ({
+      ...prev,
+      maskBitmap: null,
+      hasSelection: false,
+      isDetectingPeople: false,
+      personInfo: null,
+      polygonPoints: [],
+      lassoPoints: [],
+    }));
+  };
+
+  const handleRunSelectPeople = async () => {
+    const target = sourceImage || liveCanvasRef.current;
+    if (!target) return;
+
+    setSelectionState((prev) => ({
+      ...prev,
+      mode: 'select-people',
+      isDetectingPeople: true,
+    }));
+
+    try {
+      const result = await detectAndSegmentPeople(target);
+      setSelectionState((prev) => ({
+        ...prev,
+        mode: 'select-people',
+        isDetectingPeople: false,
+        maskBitmap: result.mask,
+        maskWidth: result.width,
+        maskHeight: result.height,
+        hasSelection: result.detected,
+        personInfo: {
+          detected: result.detected,
+          count: result.peopleCount,
+          model: result.model,
+          statusMessage: result.message,
+        },
+      }));
+
+      // Pre-fill retouch state in case user wants to jump directly to remove
+      if (result.detected) {
+        setRetouchState((prev) => ({
+          ...prev,
+          toolMode: 'person',
+          maskBitmap: [...result.mask],
+          maskWidth: result.width,
+          maskHeight: result.height,
+          hasMask: true,
+          error: null,
+          successMessage: null,
+        }));
+      }
+    } catch (err: any) {
+      console.error('Failed to run person segmentation:', err);
+      setSelectionState((prev) => ({
+        ...prev,
+        isDetectingPeople: false,
+        personInfo: {
+          detected: false,
+          count: 0,
+          model: 'none',
+          statusMessage: 'Person detection failed. Please try manual brush selection.',
+        },
+      }));
+    }
+  };
+
+  const handleGoToRemove = () => {
+    if (selectionState.maskBitmap && selectionState.hasSelection) {
+      setRetouchState((prev) => ({
+        ...prev,
+        toolMode: 'person',
+        maskBitmap: [...selectionState.maskBitmap!],
+        maskWidth: selectionState.maskWidth,
+        maskHeight: selectionState.maskHeight,
+        hasMask: true,
+        error: null,
+        successMessage: null,
+      }));
+    }
+    setWorkspaceMode('remove');
+  };
+
+  const handleConvertToMask = () => {
+    if (!selectionState.maskBitmap) return;
+    const newMaskId = `mask-sel-${Date.now()}`;
+    const newMask: LocalMask = {
+      id: newMaskId,
+      name: selectionState.personInfo?.detected
+        ? `People Mask (${selectionState.personInfo.count === 1 ? '1 Person' : `${selectionState.personInfo.count} People`})`
+        : `Selection (${selectionState.mode})`,
+      type: 'brush',
+      enabled: true,
+      inverted: false,
+      opacity: 1,
+      maskBitmap: selectionState.maskBitmap,
+      maskWidth: selectionState.maskWidth,
+      maskHeight: selectionState.maskHeight,
+      showOverlay: true,
+      refineMode: 'none',
+      adjustments: { ...selectionState.localAdjustments },
+    };
+
+    const updated = {
+      ...adjustments,
+      masks: [...adjustments.masks, newMask],
+    };
+    updateAdjustments(updated, 'Convert Selection to Develop Mask');
+    setActiveMaskId(newMaskId);
+    setWorkspaceMode('develop');
+  };
+
+  const handleApplySelectionToning = () => {
+    const target = sourceImage || liveCanvasRef.current;
+    if (!target || !selectionState.maskBitmap) return;
+
+    const fullW = (target as HTMLImageElement).naturalWidth || target.width;
+    const fullH = (target as HTMLImageElement).naturalHeight || target.height;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = fullW;
+    offscreen.height = fullH;
+    const ctx = offscreen.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(target, 0, 0, fullW, fullH);
+
+    applyAdjustmentsToSelection(
+      ctx,
+      selectionState.maskWidth,
+      selectionState.maskHeight,
+      selectionState.maskBitmap,
+      selectionState.localAdjustments
+    );
+
+    const updatedUrl = offscreen.toDataURL('image/jpeg', 0.98);
+    const newImg = new Image();
+    newImg.onload = () => {
+      setSourceImage(newImg);
+      updateAdjustments(adjustments, 'Apply Selection Toning');
+      handleClearSelection();
+    };
+    newImg.src = updatedUrl;
+  };
+
+  // ================= WORKSPACE 2: RETOUCH HANDLERS =================
+  const handleExecuteRemoval = async () => {
+    const targetSource = sourceImage || liveCanvasRef.current;
+    if (!targetSource || !retouchState.maskBitmap) return;
+
+    setRetouchState((prev) => ({
+      ...prev,
+      isProcessing: true,
+      error: null,
+      successMessage: null,
+    }));
+
+    try {
+      const result = await removeObjectOrWatermark(
+        targetSource,
+        retouchState.maskBitmap,
+        retouchState.maskWidth,
+        retouchState.maskHeight,
+        retouchState.algorithm
+      );
+
+      if (result.success && result.image) {
+        const newImg = new Image();
+        newImg.onload = () => {
+          setSourceImage(newImg);
+          const toolLabel = retouchState.toolMode === 'person' ? 'Person' : 'Object';
+          const methodLabel = result.method === 'gemini' ? 'Gemini 3.1 Flash Lite' : 'Manual Local Patch';
+          updateAdjustments(adjustments, `Remove ${toolLabel} (${methodLabel})`);
+
+          setRetouchState((prev) => ({
+            ...prev,
+            maskBitmap: null,
+            hasMask: false,
+            isProcessing: false,
+            error: null,
+            successMessage: result.message || `${toolLabel} removed successfully.`,
+          }));
+
+          // Also clear any linked selection
+          setSelectionState((prev) => ({
+            ...prev,
+            maskBitmap: null,
+            hasSelection: false,
+            personInfo: null,
+          }));
+        };
+        newImg.src = result.image;
+      } else {
+        // Truthful reporting: do NOT pretend removal succeeded. Preserve mask so user can adjust or retry.
+        setRetouchState((prev) => ({
+          ...prev,
+          isProcessing: false,
+          error: result.message || 'Removal could not be completed. Your selection mask has been preserved.',
+          successMessage: null,
+        }));
+      }
+    } catch (err: any) {
+      setRetouchState((prev) => ({
+        ...prev,
+        isProcessing: false,
+        error: err.message || 'Removal failed. Try using Local Patch.',
+        successMessage: null,
+      }));
+    }
+  };
+
+  const handleClearRetouchMask = () => {
+    setRetouchState((prev) => ({
+      ...prev,
+      maskBitmap: null,
+      hasMask: false,
+      error: null,
+    }));
+  };
+
+  // ================= WORKSPACE 3: BACKGROUND REMOVAL HANDLERS =================
+  const handleRunBackgroundSegmentation = async () => {
+    if (!sourceImage && !liveCanvasRef.current) return;
+    setBackgroundState((prev) => ({ ...prev, isProcessing: true, error: null }));
+
+    try {
+      const canvas = liveCanvasRef.current || sourceImage!;
+      const result = await extractSubjectMask(canvas as any);
+
+      setBackgroundState((prev) => ({
+        ...prev,
+        enabled: true,
+        isProcessing: false,
+        modelType: result.modelType,
+        maskBitmap: result.mask,
+        maskWidth: result.width,
+        maskHeight: result.height,
+      }));
+    } catch (err: any) {
+      setBackgroundState((prev) => ({
+        ...prev,
+        isProcessing: false,
+        error: err.message || 'Background segmentation failed.',
+      }));
+    }
+  };
+
+  const handleExportTransparentPNG = () => {
+    const target = sourceImage || liveCanvasRef.current;
+    if (!target || !backgroundState.maskBitmap) return;
+    const baseName = currentFilename.replace(/\.[^/.]+$/, '');
+    exportTransparentPNG(
+      target,
+      backgroundState.maskBitmap,
+      backgroundState.maskWidth,
+      backgroundState.maskHeight,
+      `${baseName}-isolated.png`
+    );
+  };
+
+  const handleApplyBackgroundToProject = () => {
+    if (!backgroundState.maskBitmap) return;
+    const updated: Adjustments = {
+      ...adjustments,
+      backgroundRemoval: { ...backgroundState },
+    };
+    updateAdjustments(updated, 'Apply Background Removal');
   };
 
   // Keyboard shortcut listeners
@@ -666,7 +1186,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, activeMaskId]);
 
   if (currentRoute === 'home') {
     return (
@@ -701,6 +1221,8 @@ export default function App() {
 
       {/* TOP TOOLBAR */}
       <TopToolbar
+        workspaceMode={workspaceMode}
+        onWorkspaceChange={setWorkspaceMode}
         canUndo={historyIndex > 0}
         canRedo={historyIndex < history.length - 1}
         onUndo={handleUndo}
@@ -757,7 +1279,7 @@ export default function App() {
           onFit={() => setZoomMode('fit')}
         />
 
-        {/* CENTER VIEWPORT: Canvas with Zoom, Pan, Split, Side-by-Side, Crop Overlay */}
+        {/* CENTER VIEWPORT: Canvas with Zoom, Pan, Split, Side-by-Side, Crop Overlay, and Workspace Overlays */}
         <CanvasViewport
           sourceImage={sourceImage}
           adjustments={adjustments}
@@ -770,24 +1292,85 @@ export default function App() {
           onSetZoom={setZoom}
           zoomMode={zoomMode}
           onSetZoomMode={setZoomMode}
+          workspaceMode={workspaceMode}
+          selectionState={selectionState}
+          onUpdateSelectionState={(updates) => setSelectionState((prev) => ({ ...prev, ...updates }))}
+          retouchState={retouchState}
+          onUpdateRetouchState={(updates) => setRetouchState((prev) => ({ ...prev, ...updates }))}
+          backgroundState={backgroundState}
+          onAcceptSelection={handleConvertToMask}
+          onClearSelection={handleClearSelection}
+          onGoToRemove={handleGoToRemove}
         />
 
-        {/* RIGHT SIDEBAR: Live Histogram, Light, Color, Tone Curve, HSL, Detail, Geometry, Local Masks */}
-        <RightSidebar
-          adjustments={adjustments}
-          onChangeAdjustments={updateAdjustments}
-          histogramData={histogramData}
-          onRunAIEnhance={handleRunAIEnhance}
-          isAIAnalyzing={isAIAnalyzing}
-          aiAnalysis={aiAnalysis}
-          activeMaskId={activeMaskId}
-          setActiveMaskId={setActiveMaskId}
-          onGenerateAISubjectMask={handleGenerateAISubjectMask}
-          isSegmenting={isSegmenting}
-          isOpen={rightSidebarOpen}
-          onToggleOpen={() => setRightSidebarOpen(!rightSidebarOpen)}
-          sourceImage={sourceImage}
-        />
+        {/* RIGHT SIDEBAR: Switch based on Workspace Mode */}
+        {workspaceMode === 'develop' && (
+          <RightSidebar
+            adjustments={adjustments}
+            onChangeAdjustments={updateAdjustments}
+            histogramData={histogramData}
+            onRunAIEnhance={handleRunAIEnhance}
+            isAIAnalyzing={isAIAnalyzing}
+            aiAnalysis={aiAnalysis}
+            activeMaskId={activeMaskId}
+            setActiveMaskId={setActiveMaskId}
+            onGenerateAISubjectMask={handleGenerateAISubjectMask}
+            onSelectPeople={() => {
+              setWorkspaceMode('select');
+              handleRunSelectPeople();
+            }}
+            isSegmenting={isSegmenting}
+            isOpen={rightSidebarOpen}
+            onToggleOpen={() => setRightSidebarOpen(!rightSidebarOpen)}
+            sourceImage={sourceImage}
+          />
+        )}
+
+        {workspaceMode === 'select' && (
+          <div className={`w-80 h-full shrink-0 transition-all ${rightSidebarOpen ? 'block' : 'hidden'}`}>
+            <SelectPanel
+              selectionState={selectionState}
+              onUpdateSelectionState={(updates) => setSelectionState((prev) => ({ ...prev, ...updates }))}
+              onRunSelectPeople={handleRunSelectPeople}
+              onInvert={handleInvertSelection}
+              onExpand={handleExpandSelection}
+              onContract={handleContractSelection}
+              onFeather={handleFeatherSelection}
+              onClear={handleClearSelection}
+              onConvertToMask={handleConvertToMask}
+              onApplyAdjustments={handleApplySelectionToning}
+              onGoToRemove={handleGoToRemove}
+            />
+          </div>
+        )}
+
+        {workspaceMode === 'remove' && (
+          <div className={`w-80 h-full shrink-0 transition-all ${rightSidebarOpen ? 'block' : 'hidden'}`}>
+            <RemovePanel
+              retouchState={retouchState}
+              onUpdateRetouchState={(updates) => setRetouchState((prev) => ({ ...prev, ...updates }))}
+              onExecuteRemoval={handleExecuteRemoval}
+              onClearMask={handleClearRetouchMask}
+              onRunSelectPeople={handleRunSelectPeople}
+              isDetectingPeople={selectionState.isDetectingPeople}
+              serverAIConfigured={serverAIConfigured}
+              isHoldingCompare={isHoldingCompare}
+              setIsHoldingCompare={setIsHoldingCompare}
+            />
+          </div>
+        )}
+
+        {workspaceMode === 'background' && (
+          <div className={`w-80 h-full shrink-0 transition-all ${rightSidebarOpen ? 'block' : 'hidden'}`}>
+            <BackgroundPanel
+              backgroundState={backgroundState}
+              onUpdateBackgroundState={(updates) => setBackgroundState((prev) => ({ ...prev, ...updates }))}
+              onRunSegmentation={handleRunBackgroundSegmentation}
+              onExportTransparentPNG={handleExportTransparentPNG}
+              onApplyToProject={handleApplyBackgroundToProject}
+            />
+          </div>
+        )}
       </div>
 
       {/* BOTTOM FILMSTRIP */}

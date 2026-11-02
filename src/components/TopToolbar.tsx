@@ -10,10 +10,16 @@ import {
   Columns,
   SplitSquareVertical,
   Eye,
+  Sliders,
+  Eraser,
+  Scissors,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
+import { WorkspaceMode } from '../types/editor';
 
 interface TopToolbarProps {
+  workspaceMode: WorkspaceMode;
+  onWorkspaceChange: (mode: WorkspaceMode) => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -33,6 +39,8 @@ interface TopToolbarProps {
 }
 
 export const TopToolbar: React.FC<TopToolbarProps> = React.memo(({
+  workspaceMode,
+  onWorkspaceChange,
   canUndo,
   canRedo,
   onUndo,
@@ -50,10 +58,17 @@ export const TopToolbar: React.FC<TopToolbarProps> = React.memo(({
   onHomeClick,
   currentFilename,
 }) => {
+  const workspaceTabs: { id: WorkspaceMode; label: string; icon: React.ReactNode }[] = [
+    { id: 'develop', label: 'Develop', icon: <Sliders className="w-3.5 h-3.5" /> },
+    { id: 'select', label: 'Select', icon: <Layers className="w-3.5 h-3.5" /> },
+    { id: 'remove', label: 'Remove', icon: <Eraser className="w-3.5 h-3.5" /> },
+    { id: 'background', label: 'Background', icon: <Scissors className="w-3.5 h-3.5" /> },
+  ];
+
   return (
-    <header className="h-12 w-full bg-[#0e1117] border-b border-[#1b202c] px-4 flex items-center justify-between gap-8 select-none shrink-0 z-30">
+    <header className="h-12 w-full bg-[#0e1117] border-b border-[#1b202c] px-3 sm:px-4 flex items-center justify-between gap-3 sm:gap-6 select-none shrink-0 z-30">
       {/* Zone 1: Brand Wordmark & Active Photo Filename */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         <button
           onClick={onHomeClick}
           title="Return to LumaForge Library & Gallery"
@@ -64,16 +79,34 @@ export const TopToolbar: React.FC<TopToolbarProps> = React.memo(({
             <path d="M12 3v18M3 12h18" strokeWidth="1.2" strokeOpacity="0.3" />
             <polygon points="12,5 17,12 12,19 7,12" fill="currentColor" fillOpacity="0.25" strokeWidth="1.5" />
           </svg>
-          <span className="text-sm font-bold tracking-tight text-white group-hover:text-violet-300 transition-colors whitespace-nowrap">
+          <span className="text-sm font-bold tracking-tight text-white group-hover:text-violet-300 transition-colors whitespace-nowrap hidden sm:inline">
             LumaForge Studio
-          </span>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-950/80 border border-violet-800/40 text-violet-300 hidden sm:inline">
-            Develop
           </span>
         </button>
 
+        {/* Workspace Mode Switcher Tabs */}
+        <div className="flex items-center bg-[#141822] p-0.5 rounded-lg border border-[#232938]">
+          {workspaceTabs.map((tab) => {
+            const isActive = workspaceMode === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => onWorkspaceChange(tab.id)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                  isActive
+                    ? 'bg-violet-600 text-white shadow-sm shadow-violet-600/30'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#1f2638]'
+                }`}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
         {currentFilename && (
-          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#141822] border border-[#202738] text-[11px] font-mono text-slate-300 truncate max-w-[200px]">
+          <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#141822] border border-[#202738] text-[11px] font-mono text-slate-300 truncate max-w-[180px]">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
             <span className="truncate">{currentFilename}</span>
           </div>
@@ -185,7 +218,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = React.memo(({
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-200 bg-[#161b26] hover:bg-[#202738] border border-[#2b3348] rounded-md transition-colors whitespace-nowrap shrink-0"
         >
           <Upload className="w-3.5 h-3.5 text-violet-400" />
-          <span>Import</span>
+          <span className="hidden sm:inline">Import</span>
         </button>
 
         <button

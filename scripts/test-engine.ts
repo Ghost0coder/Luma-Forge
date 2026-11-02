@@ -4,6 +4,19 @@ import { applyPresetWithStrength, parsePresetFile, exportPresetToFile } from '..
 import { BUILT_IN_PRESETS } from '../src/presets/builtInPresets';
 import { PhotoProject } from '../src/types/editor';
 import { calculateAspectCrop, getExportDimensions, CROP_ASPECT_RATIOS } from '../src/engine/cropUtils';
+import {
+  isPointInPolygon,
+  applyPolygonToSelection,
+  applyBrushStrokeToSelection,
+  applyColorRangeToSelection,
+  invertSelectionMask,
+  expandSelectionMask,
+  contractSelectionMask,
+  featherSelectionMask,
+  createEmptySelection,
+} from '../src/engine/selection/selectionEngine';
+import { inpaintLocally } from '../src/engine/retouch/localPatch';
+import { refineBackgroundMask } from '../src/engine/segmentation/backgroundRemover';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -368,7 +381,7 @@ console.log('✓ Stale render job discarding logic passed.');
 // Test 14: Continuous Slider History Immutability
 console.log('14. Testing Continuous Slider History Immutability...');
 const history = [
-  { id: 'h1', action: 'Import', timestamp: 100, adjustments: getDefaultAdjustments() },
+  { id: 'h1', action: 'Init', timestamp: 100, adjustments: getDefaultAdjustments() },
   { id: 'h2', action: 'Exposure', timestamp: 200, adjustments: { ...getDefaultAdjustments(), exposure: 0.5 } },
 ];
 
@@ -427,7 +440,6 @@ const ctmInverse2x = { a: 0.5, d: 0.5, e: 0, f: 0 };
 const coords2x = transformClientToSvg(256, 128, ctmInverse2x); // 50% X, 25% Y
 assert(coords2x.x === 128 && coords2x.y === 191, 'CTM transformation at 2x zoom incorrect');
 
-
 // Case B: Click guard suppression on drag end
 let wasDraggingJustEnded = false;
 function shouldAddPointOnClick(isDragging: boolean, wasDraggingEnded: boolean): boolean {
@@ -440,9 +452,161 @@ assert(shouldAddPointOnClick(false, false) === true, 'Clean click must be allowe
 
 console.log('✓ SVG matrix transform and drag click guard tests passed.');
 
+// Test 17: Traditional Non-AI Selection Engine (Point-in-poly, rasterization, flood fill, morphology)
+console.log('17. Testing Traditional Non-AI Selection Engine Algorithms...');
+// 17.1 Ray-casting Point in polygon
+const triangle = [
+  { x: 10, y: 10 },
+  { x: 50, y: 10 },
+  { x: 30, y: 50 },
+];
+assert(isPointInPolygon(30, 20, triangle) === true, 'Point (30, 20) must be inside triangle');
+assert(isPointInPolygon(5, 5, triangle) === false, 'Point (5, 5) must be outside triangle');
+
+// 17.2 Polygon rasterization onto selection mask
+const selW = 64;
+const selH = 64;
+let selMask = createEmptySelection(selW, selH);
+assert(selMask.length === selW * selH, 'Empty selection must match dimensions');
+
+const normTriangle = [
+  { x: 0.2, y: 0.2 },
+  { x: 0.8, y: 0.2 },
+  { x: 0.5, y: 0.8 },
+];
+selMask = applyPolygonToSelection(selMask, selW, selH, normTriangle, true);
+// Center should be selected
+const centerSelIdx = Math.floor(selH * 0.4) * selW + Math.floor(selW * 0.5);
+assert(selMask[centerSelIdx] === 255, 'Center of normalized polygon must be 255');
+// Top corner should be unselected
+assert(selMask[0] === 0, 'Corner outside polygon must be 0');
+
+// 17.3 Brush rasterization
+let brushMask = createEmptySelection(selW, selH);
+brushMask = applyBrushStrokeToSelection(brushMask, selW, selH, 32, 32, 32, 32, 10, 0, true);
+assert(brushMask[32 * selW + 32] === 255, 'Brush center must be 255');
+assert(brushMask[0] === 0, 'Distant pixel must be 0');
+
+// 17.4 Morphology: Dilation and Erosion
+const dilated = expandSelectionMask(brushMask, selW, selH, 4);
+assert(dilated[32 * selW + 32 + 13] === 255, 'Dilation must expand boundaries');
+
+const eroded = contractSelectionMask(dilated, selW, selH, 4);
+assert(eroded[32 * selW + 32] === 255, 'Center must survive round-trip');
+
+// 17.5 Invert selection mask
+const invertedSel = invertSelectionMask(brushMask);
+assert(invertedSel[0] === 255, 'Inverted zero pixel must become 255');
+assert(invertedSel[32 * selW + 32] === 0, 'Inverted 255 pixel must become 0');
+
+// 17.6 Gaussian Feathering
+const feathered = featherSelectionMask(brushMask, selW, selH, 3);
+assert(feathered[32 * selW + 32] > 200, 'Feathered center must remain high');
+assert(feathered.length === selW * selH, 'Feathered length must match');
+
+// 17.7 Color range selection with BFS flood fill
+const mockPixels = new Uint8ClampedArray(selW * selH * 4);
+for (let y = 0; y < selH; y++) {
+  for (let x = 0; x < selW; x++) {
+    const idx = (y * selW + x) * 4;
+    if (x < 32) {
+      mockPixels[idx] = 255; // Red side
+      mockPixels[idx + 1] = 0;
+      mockPixels[idx + 2] = 0;
+    } else {
+      mockPixels[idx] = 0;   // Blue side
+      mockPixels[idx + 1] = 0;
+      mockPixels[idx + 2] = 255;
+    }
+    mockPixels[idx + 3] = 255;
+  }
+}
+const colorSel = applyColorRangeToSelection(
+  mockPixels,
+  createEmptySelection(selW, selH),
+  selW,
+  selH,
+  255, // Seed Red
+  0,
+  0,
+  25,  // Tolerance
+  true,
+  10,  // Seed X
+  10,  // Seed Y
+  true
+);
+assert(colorSel[10 * selW + 10] === 255, 'Contiguous red region must be selected');
+assert(colorSel[10 * selW + 45] === 0, 'Blue region must remain unselected');
+console.log('✓ Traditional Non-AI Selection Engine tests passed.');
+
+// Test 18: High-performance Offline Content-Aware Patch & Inpainting Engine
+console.log('18. Testing Offline Content-Aware Patch & Inpainting Engine...');
+// Create a 40x40 image with a blue background and a red 10x10 square watermark in the middle
+const patchW = 40;
+const patchH = 40;
+const patchBuf = new Uint8ClampedArray(patchW * patchH * 4);
+const patchMask = new Array(patchW * patchH).fill(0);
+
+for (let y = 0; y < patchH; y++) {
+  for (let x = 0; x < patchW; x++) {
+    const pIdx = (y * patchW + x) * 4;
+    const isWatermark = x >= 15 && x <= 25 && y >= 15 && y <= 25;
+    if (isWatermark) {
+      patchBuf[pIdx] = 255; // Red watermark
+      patchBuf[pIdx + 1] = 20;
+      patchBuf[pIdx + 2] = 20;
+      patchMask[y * patchW + x] = 255; // Marked in mask
+    } else {
+      patchBuf[pIdx] = 30;  // Blue background
+      patchBuf[pIdx + 1] = 80;
+      patchBuf[pIdx + 2] = 200;
+    }
+    patchBuf[pIdx + 3] = 255;
+  }
+}
+
+// Inpaint locally
+const fakeImageData = {
+  data: patchBuf,
+  width: patchW,
+  height: patchH,
+} as ImageData;
+
+const inpainted = inpaintLocally(fakeImageData, patchMask, { iterations: 2, searchRadius: 16 });
+assert(inpainted.data.length === patchBuf.length, 'Inpainted output length must match input');
+
+// Check that the center pixel (which was red 255) has been inpainted with background blue
+const centerIdx = (20 * patchW + 20) * 4;
+const inpaintedR = inpainted.data[centerIdx];
+const inpaintedB = inpainted.data[centerIdx + 2];
+assert(inpaintedB > inpaintedR, `Watermark must be replaced with surrounding blue background (R=${inpaintedR}, B=${inpaintedB})`);
+console.log('✓ Offline content-aware patch & inpainting engine passed.');
+
+// Test 19: Background Mask Refinement (Edge Shift & Feathering)
+console.log('19. Testing Background Removal Mask Refinement...');
+const bgW = 50;
+const bgH = 50;
+const rawBgMask = new Array(bgW * bgH).fill(0);
+// Center square subject
+for (let y = 15; y <= 35; y++) {
+  for (let x = 15; x <= 35; x++) {
+    rawBgMask[y * bgW + x] = 255;
+  }
+}
+
+// Edge expand (+3px)
+const expandedBg = refineBackgroundMask(rawBgMask, bgW, bgH, 3, 0);
+assert(expandedBg[12 * bgW + 25] === 255, 'Edge shift +3 must expand subject mask outward');
+
+// Edge shrink (-3px)
+const shrunkBg = refineBackgroundMask(rawBgMask, bgW, bgH, -3, 0);
+assert(shrunkBg[16 * bgW + 25] === 0, 'Edge shift -3 must shrink subject mask inward');
+
+// Feathering
+const featheredBg = refineBackgroundMask(rawBgMask, bgW, bgH, 0, 4);
+assert(featheredBg[15 * bgW + 15] < 255 && featheredBg[15 * bgW + 15] > 0, 'Feathering must soften boundary edges');
+console.log('✓ Background removal mask refinement passed.');
+
 console.log('====================================');
-console.log('ALL 16 AUTOMATED ENGINE TEST SUITES PASSED (0 failures)!');
+console.log('ALL 19 AUTOMATED ENGINE TEST SUITES PASSED (0 failures)!');
 console.log('====================================');
-
-
-

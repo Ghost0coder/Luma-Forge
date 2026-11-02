@@ -16,6 +16,8 @@ export const CROP_ASPECT_RATIOS: AspectRatioOption[] = [
   { key: '4:3', label: '4:3 Landscape', ratio: 4 / 3, category: 'landscape' },
   { key: '4:5', label: '4:5 Portrait', ratio: 4 / 5, category: 'portrait' },
   { key: '5:4', label: '5:4 Landscape', ratio: 5 / 4, category: 'landscape' },
+  { key: '7:5', label: '7:5 Landscape', ratio: 7 / 5, category: 'landscape' },
+  { key: '5:7', label: '5:7 Portrait', ratio: 5 / 7, category: 'portrait' },
   { key: '9:16', label: '9:16 Portrait', ratio: 9 / 16, category: 'portrait' },
   { key: '16:9', label: '16:9 Widescreen', ratio: 16 / 9, category: 'landscape' },
 ];

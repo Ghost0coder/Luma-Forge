@@ -6,12 +6,23 @@ import {
   SplitSquareVertical,
   Check,
   RotateCcw,
+  Users,
+  Eraser,
+  X,
 } from 'lucide-react';
-import { Adjustments } from '../types/editor';
+import { Adjustments, WorkspaceMode, SelectionState, RetouchState, BackgroundRemovalState } from '../types/editor';
 import { renderImageAdjustments } from '../engine/pipeline';
 import { getDefaultAdjustments } from '../engine/defaultAdjustments';
 import { workerManager } from '../engine/workerManager';
 import { CROP_ASPECT_RATIOS } from '../engine/cropUtils';
+import {
+  applyBrushStrokeToSelection,
+  applyPolygonToSelection,
+  applyColorRangeToSelection,
+  createEmptySelection,
+  resampleMask,
+} from '../engine/selection/selectionEngine';
+import { renderCompositedBackground, refineBackgroundMask } from '../engine/segmentation/backgroundRemover';
 
 interface CanvasViewportProps {
   sourceImage: HTMLImageElement | null;
@@ -25,6 +36,15 @@ interface CanvasViewportProps {
   onSetZoom: (zoom: number) => void;
   zoomMode?: 'fit' | '100%' | '200%' | 'custom';
   onSetZoomMode?: (mode: 'fit' | '100%' | '200%' | 'custom') => void;
+  workspaceMode?: WorkspaceMode;
+  selectionState?: SelectionState;
+  onUpdateSelectionState?: (updates: Partial<SelectionState>) => void;
+  retouchState?: RetouchState;
+  onUpdateRetouchState?: (updates: Partial<RetouchState>) => void;
+  backgroundState?: BackgroundRemovalState;
+  onAcceptSelection?: () => void;
+  onClearSelection?: () => void;
+  onGoToRemove?: () => void;
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -39,15 +59,27 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   onSetZoom,
   zoomMode = 'fit',
   onSetZoomMode,
+  workspaceMode = 'develop',
+  selectionState,
+  onUpdateSelectionState,
+  retouchState,
+  onUpdateRetouchState,
+  backgroundState,
+  onAcceptSelection,
+  onClearSelection,
+  onGoToRemove,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const bgPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Pan state
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [startPan, setStartPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
 
   // Split-screen divider position (0.0 to 1.0, default 0.5)
   const [splitPos, setSplitPos] = useState<number>(0.5);
@@ -67,10 +99,37 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   // Brush painting & refinement state
   const [isBrushing, setIsBrushing] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
-  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [lastPoint, setLastPoint] = useState<{ x: number; y: number } | null>(null);
+
+  // Drawing state for Selection / Retouch tools
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [isRetouching, setIsRetouching] = useState(false);
+
+  // Visual brush cursor indicator
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number; isInside: boolean } | null>(null);
 
   const activeMask = adjustments.masks.find((m) => m.id === activeMaskId);
   const animFrameId = useRef<number | null>(null);
+
+  // Listen for Space bar for temporary panning tool
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        setIsSpacePressed(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
 
   // Fit to screen helper: calculates scale = min(availableWidth / imageWidth, availableHeight / imageHeight)
   const handleFit = useCallback(() => {
@@ -123,15 +182,18 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       const target = canvasRef.current;
       const adjToRender = isHoldingCompare ? getDefaultAdjustments() : adjustments;
 
-      // Adaptive viewport resolution (max 1280px for responsive 60fps preview)
+      // Adaptive viewport resolution (max 1440px for responsive 60fps preview)
       const containerW = containerRef.current?.clientWidth || 1280;
-      const maxDim = Math.min(1280, Math.max(800, containerW * (window.devicePixelRatio || 1)));
+      const maxDim = Math.min(1440, Math.max(800, containerW * (window.devicePixelRatio || 1)));
 
       workerManager.requestRender(
         sourceImage,
         target,
         adjToRender,
-        { maxDimension: maxDim },
+        {
+          maxDimension: maxDim,
+          isCropEditing: Boolean(adjustments.crop.isEditing),
+        },
         (targetCanvas) => {
           onCanvasRendered(targetCanvas);
           if (zoomMode === 'fit') {
@@ -144,6 +206,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       if (comparisonMode !== 'off' && originalCanvasRef.current) {
         renderImageAdjustments(sourceImage, originalCanvasRef.current, getDefaultAdjustments(), {
           maxDimension: maxDim,
+          isCropEditing: Boolean(adjustments.crop.isEditing),
         });
       }
     });
@@ -155,7 +218,59 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     };
   }, [sourceImage, adjustments, isHoldingCompare, comparisonMode, onCanvasRendered, zoomMode, handleFit]);
 
-  // Render Ruby Mask Overlay preview whenever activeMask changes
+  // Render Background Removal Preview when in 'background' workspace
+  useEffect(() => {
+    if (
+      workspaceMode !== 'background' ||
+      !backgroundState?.maskBitmap ||
+      !canvasRef.current ||
+      !bgPreviewCanvasRef.current
+    ) {
+      return;
+    }
+
+    const source = canvasRef.current;
+    const bgCanvas = bgPreviewCanvasRef.current;
+    bgCanvas.width = source.width;
+    bgCanvas.height = source.height;
+
+    const ctx = bgCanvas.getContext('2d');
+    if (!ctx) return;
+
+    const refinedMask = refineBackgroundMask(
+      backgroundState.maskBitmap,
+      backgroundState.maskWidth,
+      backgroundState.maskHeight,
+      backgroundState.edgeShift,
+      backgroundState.feather
+    );
+
+    let customImg: HTMLImageElement | null = null;
+    if (backgroundState.mode === 'image' && backgroundState.customBgUrl) {
+      customImg = new Image();
+      customImg.src = backgroundState.customBgUrl;
+    }
+
+    renderCompositedBackground(
+      ctx,
+      source,
+      refinedMask,
+      backgroundState.maskWidth,
+      backgroundState.maskHeight,
+      source.width,
+      source.height,
+      {
+        mode: backgroundState.mode,
+        color: backgroundState.color,
+        blurRadius: backgroundState.blurRadius,
+        customBgImage: customImg,
+        feather: backgroundState.feather,
+        edgeShift: backgroundState.edgeShift,
+      }
+    );
+  }, [workspaceMode, backgroundState, adjustments]);
+
+  // Render Overlays: Selection, Retouch, and Develop Masks
   useEffect(() => {
     if (!overlayCanvasRef.current || !canvasRef.current) return;
     const overlay = overlayCanvasRef.current;
@@ -167,56 +282,187 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
     octx.clearRect(0, 0, overlay.width, overlay.height);
 
-    if (!activeMask || activeMask.showOverlay === false || !activeMask.enabled) {
+    const ow = overlay.width;
+    const oh = overlay.height;
+
+    // 1. WORKSPACE: SELECT MODE OVERLAY
+    if (workspaceMode === 'select' && selectionState) {
+      if (selectionState.maskBitmap && selectionState.hasSelection) {
+        const mw = selectionState.maskWidth;
+        const mh = selectionState.maskHeight;
+        const bitmap = selectionState.maskBitmap;
+        const imgData = octx.createImageData(ow, oh);
+        const data = imgData.data;
+
+        for (let y = 0; y < oh; y++) {
+          const my = Math.min(mh - 1, Math.floor((y / oh) * mh));
+          for (let x = 0; x < ow; x++) {
+            const mx = Math.min(mw - 1, Math.floor((x / ow) * mw));
+            const val = (bitmap[my * mw + mx] || 0) / 255;
+            if (val > 0.02) {
+              const idx = (y * ow + x) * 4;
+              // Radiant cyan-violet selection highlight with gentle alpha
+              data[idx] = 168;     // R
+              data[idx + 1] = 85;  // G
+              data[idx + 2] = 247; // B
+              data[idx + 3] = Math.round(val * 125);
+            }
+          }
+        }
+        octx.putImageData(imgData, 0, 0);
+      }
+
+      // Render polygon outline preview
+      if (selectionState.mode === 'polygon' && selectionState.polygonPoints.length > 0) {
+        octx.beginPath();
+        selectionState.polygonPoints.forEach((pt, idx) => {
+          const px = pt.x * ow;
+          const py = pt.y * oh;
+          if (idx === 0) octx.moveTo(px, py);
+          else octx.lineTo(px, py);
+        });
+        octx.strokeStyle = '#c084fc';
+        octx.lineWidth = 2;
+        octx.setLineDash([4, 4]);
+        octx.stroke();
+
+        // Guide line from last vertex to current cursor position
+        if (cursorPos && cursorPos.isInside && overlayCanvasRef.current) {
+          const rect = overlayCanvasRef.current.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            const curX = ((cursorPos.x - rect.left) / rect.width) * ow;
+            const curY = ((cursorPos.y - rect.top) / rect.height) * oh;
+            const lastPt = selectionState.polygonPoints[selectionState.polygonPoints.length - 1];
+            octx.beginPath();
+            octx.moveTo(lastPt.x * ow, lastPt.y * oh);
+            octx.lineTo(curX, curY);
+            octx.strokeStyle = '#e9d5ff';
+            octx.lineWidth = 1.5;
+            octx.setLineDash([3, 3]);
+            octx.stroke();
+          }
+        }
+
+        selectionState.polygonPoints.forEach((pt, idx) => {
+          const px = pt.x * ow;
+          const py = pt.y * oh;
+          if (idx === 0 && selectionState.polygonPoints.length >= 3) {
+            // First vertex highlighted as click-to-close origin
+            octx.fillStyle = '#a855f7';
+            octx.beginPath();
+            octx.arc(px, py, 6, 0, Math.PI * 2);
+            octx.fill();
+            octx.strokeStyle = '#ffffff';
+            octx.lineWidth = 2;
+            octx.setLineDash([]);
+            octx.stroke();
+          } else {
+            octx.fillStyle = '#ffffff';
+            octx.beginPath();
+            octx.arc(px, py, 4, 0, Math.PI * 2);
+            octx.fill();
+            octx.strokeStyle = '#7c3aed';
+            octx.lineWidth = 1.5;
+            octx.setLineDash([]);
+            octx.stroke();
+          }
+        });
+      }
+
+      // Render lasso outline preview
+      if (selectionState.mode === 'lasso' && selectionState.lassoPoints.length > 0) {
+        octx.beginPath();
+        selectionState.lassoPoints.forEach((pt, idx) => {
+          const px = pt.x * ow;
+          const py = pt.y * oh;
+          if (idx === 0) octx.moveTo(px, py);
+          else octx.lineTo(px, py);
+        });
+        octx.strokeStyle = '#a855f7';
+        octx.lineWidth = 2;
+        octx.setLineDash([3, 3]);
+        octx.stroke();
+      }
+
       return;
     }
 
-    const ow = overlay.width;
-    const oh = overlay.height;
-    const imgData = octx.createImageData(ow, oh);
-    const data = imgData.data;
+    // 2. WORKSPACE: RETOUCH / REMOVE MODE OVERLAY
+    if (workspaceMode === 'remove' && retouchState) {
+      if (retouchState.maskBitmap && retouchState.hasMask) {
+        const mw = retouchState.maskWidth;
+        const mh = retouchState.maskHeight;
+        const bitmap = retouchState.maskBitmap;
+        const imgData = octx.createImageData(ow, oh);
+        const data = imgData.data;
 
-    const mw = activeMask.maskWidth || 256;
-    const mh = activeMask.maskHeight || 256;
-    const bitmap = activeMask.maskBitmap;
-    const refineStrokes = activeMask.refineStrokes || [];
-    const shouldInvert = activeMask.inverted || activeMask.type === 'ai-background';
-
-    if (bitmap && bitmap.length > 0) {
-      for (let y = 0; y < oh; y++) {
-        const ny = y / oh;
-        const py = Math.max(0, Math.min(mh - 1, Math.round(ny * (mh - 1))));
-        for (let x = 0; x < ow; x++) {
-          const nx = x / ow;
-          const px = Math.max(0, Math.min(mw - 1, Math.round(nx * (mw - 1))));
-          let val = (bitmap[py * mw + px] ?? 0) / 255.0;
-
-          if (refineStrokes.length > 0) {
-            for (const stroke of refineStrokes) {
-              const dist = Math.hypot(nx - stroke.x, ny - stroke.y);
-              const rad = stroke.radius || 0.06;
-              if (dist <= rad) {
-                const inf = Math.cos((dist / rad) * (Math.PI / 2));
-                if (stroke.mode === 'add') val = Math.min(1.0, val + inf * 0.9);
-                else if (stroke.mode === 'erase') val = Math.max(0.0, val - inf * 0.9);
-              }
+        for (let y = 0; y < oh; y++) {
+          const my = Math.min(mh - 1, Math.floor((y / oh) * mh));
+          for (let x = 0; x < ow; x++) {
+            const mx = Math.min(mw - 1, Math.floor((x / ow) * mw));
+            const val = (bitmap[my * mw + mx] || 0) / 255;
+            if (val > 0.05) {
+              const idx = (y * ow + x) * 4;
+              // Ruby red removal mask
+              data[idx] = 239;     // R
+              data[idx + 1] = 68;  // G
+              data[idx + 2] = 68;  // B
+              data[idx + 3] = Math.round(val * 145);
             }
           }
+        }
+        octx.putImageData(imgData, 0, 0);
+      }
+      return;
+    }
 
-          if (shouldInvert) val = 1.0 - val;
+    // 3. WORKSPACE: DEVELOP MODE (Existing Local Mask Overlay)
+    if (activeMask && activeMask.showOverlay !== false && activeMask.enabled) {
+      const imgData = octx.createImageData(ow, oh);
+      const data = imgData.data;
 
-          if (val > 0.05) {
-            const idx = (y * ow + x) * 4;
-            data[idx] = 244;
-            data[idx + 1] = 63;
-            data[idx + 2] = 94;
-            data[idx + 3] = Math.round(val * 115);
+      const mw = activeMask.maskWidth || 256;
+      const mh = activeMask.maskHeight || 256;
+      const bitmap = activeMask.maskBitmap;
+      const refineStrokes = activeMask.refineStrokes || [];
+      const shouldInvert = activeMask.inverted || activeMask.type === 'ai-background';
+
+      if (bitmap && bitmap.length > 0) {
+        for (let y = 0; y < oh; y++) {
+          const ny = y / oh;
+          const py = Math.max(0, Math.min(mh - 1, Math.round(ny * (mh - 1))));
+          for (let x = 0; x < ow; x++) {
+            const nx = x / ow;
+            const px = Math.max(0, Math.min(mw - 1, Math.round(nx * (mw - 1))));
+            let val = (bitmap[py * mw + px] ?? 0) / 255.0;
+
+            if (refineStrokes.length > 0) {
+              for (const stroke of refineStrokes) {
+                const dist = Math.hypot(nx - stroke.x, ny - stroke.y);
+                const rad = stroke.radius || 0.06;
+                if (dist <= rad) {
+                  const inf = Math.cos((dist / rad) * (Math.PI / 2));
+                  if (stroke.mode === 'add') val = Math.min(1.0, val + inf * 0.9);
+                  else if (stroke.mode === 'erase') val = Math.max(0.0, val - inf * 0.9);
+                }
+              }
+            }
+
+            if (shouldInvert) val = 1.0 - val;
+
+            if (val > 0.05) {
+              const idx = (y * ow + x) * 4;
+              data[idx] = 244;
+              data[idx + 1] = 63;
+              data[idx + 2] = 94;
+              data[idx + 3] = Math.round(val * 115);
+            }
           }
         }
+        octx.putImageData(imgData, 0, 0);
       }
-      octx.putImageData(imgData, 0, 0);
     }
-  }, [activeMask]);
+  }, [workspaceMode, selectionState, retouchState, activeMask]);
 
   // Wheel zoom handler
   const handleWheel = (e: React.WheelEvent) => {
@@ -224,6 +470,26 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     onSetZoomMode?.('custom');
     const factor = e.deltaY < 0 ? 1.12 : 0.88;
     onSetZoom(Math.max(0.05, Math.min(6.0, zoom * factor)));
+  };
+
+  // Helper to convert client mouse event to canvas pixel coordinates
+  const getCanvasPixelCoords = (e: React.MouseEvent) => {
+    if (!canvasRef.current) return { x: 0, y: 0, nx: 0, ny: 0, width: 0, height: 0, isInside: false };
+    const rect = canvasRef.current.getBoundingClientRect();
+    const width = canvasRef.current.width || 1200;
+    const height = canvasRef.current.height || 800;
+
+    const isInside =
+      e.clientX >= rect.left &&
+      e.clientX <= rect.right &&
+      e.clientY >= rect.top &&
+      e.clientY <= rect.bottom;
+
+    const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const x = Math.round(nx * width);
+    const y = Math.round(ny * height);
+    return { x, y, nx, ny, width, height, isInside };
   };
 
   // Pan & crop drag handlers
@@ -234,25 +500,171 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       return;
     }
 
-    // Check if mask refine mode is active
+    const { x, y, nx, ny, width, height, isInside } = getCanvasPixelCoords(e);
+
+    // If Space is pressed, or middle mouse, or user clicked outside photo area: PAN
+    if (isSpacePressed || e.button === 1 || !isInside) {
+      setIsPanning(true);
+      setStartPan({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      return;
+    }
+
+    // 1. SELECT MODE INTERACTION
+    if (workspaceMode === 'select' && selectionState && onUpdateSelectionState) {
+      const isAdd = selectionState.operation !== 'subtract';
+
+      let currentMask = selectionState.maskBitmap;
+      if (!currentMask) {
+        currentMask = createEmptySelection(width, height);
+      } else if (selectionState.maskWidth !== width || selectionState.maskHeight !== height) {
+        currentMask = resampleMask(currentMask, selectionState.maskWidth, selectionState.maskHeight, width, height);
+      }
+
+      if (selectionState.mode === 'brush') {
+        setIsSelecting(true);
+        setLastPoint({ x, y });
+        const updated = applyBrushStrokeToSelection(
+          currentMask,
+          width,
+          height,
+          x,
+          y,
+          x,
+          y,
+          selectionState.brushSize,
+          selectionState.brushFeather,
+          isAdd
+        );
+        onUpdateSelectionState({
+          maskBitmap: updated,
+          maskWidth: width,
+          maskHeight: height,
+          hasSelection: true,
+        });
+        return;
+      }
+
+      if (selectionState.mode === 'lasso') {
+        setIsSelecting(true);
+        onUpdateSelectionState({
+          lassoPoints: [{ x: nx, y: ny }],
+        });
+        return;
+      }
+
+      if (selectionState.mode === 'polygon') {
+        if (selectionState.polygonPoints.length >= 3) {
+          const firstPt = selectionState.polygonPoints[0];
+          const distPx = Math.hypot((nx - firstPt.x) * width, (ny - firstPt.y) * height);
+          if (distPx <= 22) {
+            // Clicked origin node to close and finalize polygon
+            const updated = applyPolygonToSelection(
+              currentMask,
+              width,
+              height,
+              selectionState.polygonPoints,
+              isAdd
+            );
+            onUpdateSelectionState({
+              maskBitmap: updated,
+              maskWidth: width,
+              maskHeight: height,
+              hasSelection: true,
+              polygonPoints: [],
+            });
+            return;
+          }
+        }
+        const newPts = [...selectionState.polygonPoints, { x: nx, y: ny }];
+        onUpdateSelectionState({ polygonPoints: newPts });
+        return;
+      }
+
+      if (selectionState.mode === 'color-range') {
+        const ctx = canvasRef.current?.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          const imgData = ctx.getImageData(0, 0, width, height);
+          const pIdx = (y * width + x) * 4;
+          const seedR = imgData.data[pIdx];
+          const seedG = imgData.data[pIdx + 1];
+          const seedB = imgData.data[pIdx + 2];
+
+          const updated = applyColorRangeToSelection(
+            imgData.data,
+            currentMask,
+            width,
+            height,
+            seedR,
+            seedG,
+            seedB,
+            selectionState.tolerance,
+            selectionState.contiguous,
+            x,
+            y,
+            isAdd
+          );
+
+          onUpdateSelectionState({
+            maskBitmap: updated,
+            maskWidth: width,
+            maskHeight: height,
+            hasSelection: true,
+          });
+        }
+        return;
+      }
+    }
+
+    // 2. RETOUCH / REMOVE MODE INTERACTION
+    if (workspaceMode === 'remove' && retouchState && onUpdateRetouchState) {
+      let currentMask = retouchState.maskBitmap;
+      if (!currentMask) {
+        currentMask = createEmptySelection(width, height);
+      } else if (retouchState.maskWidth !== width || retouchState.maskHeight !== height) {
+        currentMask = resampleMask(currentMask, retouchState.maskWidth, retouchState.maskHeight, width, height);
+      }
+
+      setIsRetouching(true);
+      setLastPoint({ x, y });
+      const isAdd = retouchState.mode === 'add';
+      const updated = applyBrushStrokeToSelection(
+        currentMask,
+        width,
+        height,
+        x,
+        y,
+        x,
+        y,
+        retouchState.brushSize,
+        retouchState.feather,
+        isAdd
+      );
+
+      onUpdateRetouchState({
+        maskBitmap: updated,
+        maskWidth: width,
+        maskHeight: height,
+        hasMask: true,
+      });
+      return;
+    }
+
+    // 3. DEVELOP MODE (Mask Refine, Brush Mask, Crop, Pan)
     if (e.button === 0 && activeMask && (activeMask.refineMode === 'add' || activeMask.refineMode === 'erase')) {
       setIsRefining(true);
       addRefineStroke(e);
       return;
     }
 
-    // Check if brush mask is active
     if (e.button === 0 && activeMask && activeMask.type === 'brush' && !e.altKey && !e.shiftKey) {
       setIsBrushing(true);
       addBrushPoint(e);
       return;
     }
 
-    // Check if clicking inside crop overlay to drag/reposition crop window
     if (
       e.button === 0 &&
-      adjustments.crop.active &&
-      (adjustments.crop.width < 0.999 || adjustments.crop.height < 0.999) &&
+      adjustments.crop.isEditing &&
       !e.altKey &&
       !e.shiftKey
     ) {
@@ -311,11 +723,63 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    const { x, y, nx, ny, width, height, isInside } = getCanvasPixelCoords(e);
+    setCursorPos({ x: e.clientX, y: e.clientY, isInside });
+
     if (isDraggingSplit && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const pos = Math.max(0.05, Math.min(0.95, (e.clientX - rect.left) / rect.width));
       setSplitPos(pos);
       return;
+    }
+
+    // 1. SELECT MODE DRAG
+    if (isSelecting && workspaceMode === 'select' && selectionState && onUpdateSelectionState) {
+      if (selectionState.mode === 'brush' && lastPoint && selectionState.maskBitmap) {
+        const isAdd = selectionState.operation !== 'subtract';
+        const updated = applyBrushStrokeToSelection(
+          selectionState.maskBitmap,
+          width,
+          height,
+          lastPoint.x,
+          lastPoint.y,
+          x,
+          y,
+          selectionState.brushSize,
+          selectionState.brushFeather,
+          isAdd
+        );
+        setLastPoint({ x, y });
+        onUpdateSelectionState({ maskBitmap: updated });
+        return;
+      }
+      if (selectionState.mode === 'lasso') {
+        const newPts = [...selectionState.lassoPoints, { x: nx, y: ny }];
+        onUpdateSelectionState({ lassoPoints: newPts });
+        return;
+      }
+    }
+
+    // 2. RETOUCH MODE DRAG
+    if (isRetouching && workspaceMode === 'remove' && retouchState && onUpdateRetouchState) {
+      if (lastPoint && retouchState.maskBitmap) {
+        const isAdd = retouchState.mode === 'add';
+        const updated = applyBrushStrokeToSelection(
+          retouchState.maskBitmap,
+          width,
+          height,
+          lastPoint.x,
+          lastPoint.y,
+          x,
+          y,
+          retouchState.brushSize,
+          retouchState.feather,
+          isAdd
+        );
+        setLastPoint({ x, y });
+        onUpdateRetouchState({ maskBitmap: updated });
+        return;
+      }
     }
 
     if (isRefining) {
@@ -338,8 +802,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       const maxMoveX = 1 - cropDragStart.w;
       const maxMoveY = 1 - cropDragStart.h;
 
-      const newX = Math.max(0, Math.min(maxMoveX, cropDragStart.x - dx));
-      const newY = Math.max(0, Math.min(maxMoveY, cropDragStart.y - dy));
+      const newX = Math.max(0, Math.min(maxMoveX, cropDragStart.x + dx));
+      const newY = Math.max(0, Math.min(maxMoveY, cropDragStart.y + dy));
 
       onChangeAdjustments(
         {
@@ -361,6 +825,36 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   };
 
   const handleMouseUp = () => {
+    // Finalize lasso selection
+    if (isSelecting && workspaceMode === 'select' && selectionState && onUpdateSelectionState) {
+      if (selectionState.mode === 'lasso' && selectionState.lassoPoints.length > 2) {
+        const width = canvasRef.current?.width || 1200;
+        const height = canvasRef.current?.height || 800;
+        let currentMask = selectionState.maskBitmap || createEmptySelection(width, height);
+        if (selectionState.maskWidth !== width || selectionState.maskHeight !== height) {
+          currentMask = resampleMask(currentMask, selectionState.maskWidth, selectionState.maskHeight, width, height);
+        }
+        const isAdd = selectionState.operation !== 'subtract';
+        const updated = applyPolygonToSelection(
+          currentMask,
+          width,
+          height,
+          selectionState.lassoPoints,
+          isAdd
+        );
+        onUpdateSelectionState({
+          maskBitmap: updated,
+          maskWidth: width,
+          maskHeight: height,
+          hasSelection: true,
+          lassoPoints: [],
+        });
+      }
+    }
+
+    setIsSelecting(false);
+    setIsRetouching(false);
+    setLastPoint(null);
     setIsPanning(false);
     setIsDraggingSplit(false);
     setIsBrushing(false);
@@ -369,8 +863,37 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     setCropDragStart(null);
   };
 
+  const handleDoubleClick = () => {
+    // Finalize polygon selection
+    if (workspaceMode === 'select' && selectionState && onUpdateSelectionState) {
+      if (selectionState.mode === 'polygon' && selectionState.polygonPoints.length >= 3) {
+        const width = canvasRef.current?.width || 1200;
+        const height = canvasRef.current?.height || 800;
+        let currentMask = selectionState.maskBitmap || createEmptySelection(width, height);
+        if (selectionState.maskWidth !== width || selectionState.maskHeight !== height) {
+          currentMask = resampleMask(currentMask, selectionState.maskWidth, selectionState.maskHeight, width, height);
+        }
+        const isAdd = selectionState.operation !== 'subtract';
+        const updated = applyPolygonToSelection(
+          currentMask,
+          width,
+          height,
+          selectionState.polygonPoints,
+          isAdd
+        );
+        onUpdateSelectionState({
+          maskBitmap: updated,
+          maskWidth: width,
+          maskHeight: height,
+          hasSelection: true,
+          polygonPoints: [],
+        });
+      }
+    }
+  };
+
   const crop = adjustments.crop;
-  const isCropping = crop.active;
+  const isCropping = Boolean(crop.isEditing);
 
   if (!sourceImage) {
     return (
@@ -378,16 +901,14 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         <div className="max-w-md text-center space-y-3">
           <div className="w-16 h-16 rounded-2xl bg-[#141824] border border-[#232a3b] mx-auto flex items-center justify-center shadow-lg">
             <svg className="w-8 h-8 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <rect x="3" y="3" width="18" height="18" rx="3" strokeWidth="1.5" />
+              <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="1.5" />
               <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
-              <path d="M21 15l-5-5L5 21" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="M21 15l-5-5L5 21" strokeWidth="1.5" />
             </svg>
           </div>
-          <h2 className="text-base font-semibold text-slate-200">
-            Welcome to LumaForge
-          </h2>
+          <h2 className="text-lg font-semibold text-white">No Photo Loaded</h2>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Import your own photo or pick one of the sample shots in the Library sidebar to start non-destructive editing.
+            Drag and drop an image anywhere onto the canvas, or select a photo from the sample library on the left.
           </p>
         </div>
       </main>
@@ -396,6 +917,15 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
   const activeRatioOption = CROP_ASPECT_RATIOS.find((r) => r.key === crop.aspectRatio);
 
+  // Calculate brush ring diameter in screen pixels
+  const activeBrushRadius =
+    workspaceMode === 'select'
+      ? selectionState?.brushSize || 40
+      : workspaceMode === 'remove'
+      ? retouchState?.brushSize || 32
+      : 0;
+  const brushDiameterScreen = Math.round(activeBrushRadius * 2 * zoom);
+
   return (
     <main
       ref={containerRef}
@@ -403,78 +933,126 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-      className="flex-1 h-[calc(100vh-3rem)] bg-[#07090d] relative overflow-hidden flex items-center justify-center select-none cursor-default"
+      onDoubleClick={handleDoubleClick}
+      className={`flex-1 h-[calc(100vh-3rem)] bg-[#07090d] overflow-hidden relative flex items-center justify-center select-none ${
+        isSpacePressed || isPanning
+          ? 'cursor-grabbing'
+          : workspaceMode === 'select' || workspaceMode === 'remove'
+          ? 'cursor-crosshair'
+          : 'cursor-grab'
+      }`}
     >
-      {/* Canvas Workspace Wrapper with Zoom & Pan */}
+      {/* Floating Person Detected Action Banner */}
+      {workspaceMode === 'select' && selectionState?.personInfo?.detected && selectionState.hasSelection && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#121622]/95 border border-purple-500/50 shadow-2xl backdrop-blur-md text-xs text-white">
+          <div className="flex items-center gap-1.5 font-medium text-purple-300 pr-1">
+            <Users className="w-3.5 h-3.5 text-purple-400" />
+            <span>
+              {selectionState.personInfo.count === 1
+                ? 'Person Detected'
+                : `${selectionState.personInfo.count} People Detected`}
+            </span>
+          </div>
+          <div className="w-px h-3.5 bg-zinc-700" />
+          <button
+            onClick={onAcceptSelection}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-sm transition cursor-pointer"
+          >
+            <Check className="w-3 h-3" />
+            <span>Accept</span>
+          </button>
+          <button
+            onClick={onGoToRemove}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-600 hover:bg-rose-500 text-white font-medium shadow-sm transition cursor-pointer"
+          >
+            <Eraser className="w-3 h-3" />
+            <span>Remove Person</span>
+          </button>
+          <button
+            onClick={onClearSelection}
+            className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+          >
+            <X className="w-3 h-3" />
+            <span>Cancel</span>
+          </button>
+        </div>
+      )}
+
+      {/* Dynamic Brush Radius Cursor Ring */}
+      {cursorPos && cursorPos.isInside && activeBrushRadius > 0 && !isPanning && !isSpacePressed && (
+        <div
+          style={{
+            left: cursorPos.x,
+            top: cursorPos.y,
+            width: `${brushDiameterScreen}px`,
+            height: `${brushDiameterScreen}px`,
+            transform: 'translate(-50%, -50%)',
+          }}
+          className="fixed rounded-full border border-white/90 shadow-[0_0_2px_rgba(0,0,0,0.9)] pointer-events-none z-50 transition-none"
+        />
+      )}
+
+      {/* Canvas container with pan & zoom transform */}
       <div
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: 'center center',
-          transition: isPanning || isDraggingCrop ? 'none' : 'transform 0.08s ease-out',
+          transition: isPanning || isDraggingCrop ? 'none' : 'transform 0.05s ease-out',
         }}
-        className="relative flex items-center justify-center"
+        className="relative"
       >
-        {/* SIDE-BY-SIDE MODE */}
+        {/* SIDE-BY-SIDE BEFORE / AFTER VIEW */}
         {comparisonMode === 'side-by-side' ? (
-          <div className="flex items-center gap-4">
-            <div className="relative shadow-2xl rounded border border-[#202738] overflow-hidden bg-black">
-              <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-black/70 text-[10px] font-semibold text-slate-300 backdrop-blur-sm">
-                Original (Before)
+          <div className="flex gap-4 p-2 bg-[#0c0f17] rounded-lg border border-[#1b2130] shadow-2xl">
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400">Original</span>
+              <div className="relative overflow-hidden rounded border border-[#232a3b] bg-black">
+                <canvas ref={originalCanvasRef} className="block object-contain" />
               </div>
-              <canvas ref={originalCanvasRef} className="block object-contain" />
             </div>
-
-            <div className="relative shadow-2xl rounded border border-[#202738] overflow-hidden bg-black">
-              <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-violet-950/80 text-[10px] font-semibold text-violet-300 border border-violet-700/50 backdrop-blur-sm">
-                Edited (After)
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="text-[10px] uppercase font-mono tracking-wider text-violet-400">Edited</span>
+              <div className="relative overflow-hidden rounded border border-violet-900/60 bg-black">
+                <canvas ref={canvasRef} className="block object-contain" />
               </div>
-              <canvas ref={canvasRef} className="block object-contain" />
             </div>
           </div>
         ) : comparisonMode === 'split' ? (
-          /* SPLIT-SCREEN COMPARISON MODE */
+          /* SPLIT SCREEN SLIDER COMPARISON VIEW */
           <div className="relative shadow-2xl rounded border border-[#202738] overflow-hidden bg-black">
-            {/* Edited canvas underneath */}
             <canvas ref={canvasRef} className="block object-contain" />
-
-            {/* Original canvas clipped to splitPos */}
             <div
-              style={{
-                clipPath: `polygon(0 0, ${splitPos * 100}% 0, ${splitPos * 100}% 100%, 0 100%)`,
-              }}
+              style={{ clipPath: `inset(0 ${(1 - splitPos) * 100}% 0 0)` }}
               className="absolute inset-0 pointer-events-none"
             >
-              <canvas ref={originalCanvasRef} className="w-full h-full object-contain" />
+              <canvas ref={originalCanvasRef} className="block object-contain w-full h-full" />
             </div>
-
-            {/* Draggable Divider Line */}
             <div
               style={{ left: `${splitPos * 100}%` }}
-              className="absolute inset-y-0 w-0.5 bg-violet-400 shadow-md cursor-ew-resize z-20"
+              className="split-divider-handle absolute top-0 bottom-0 w-1 bg-white cursor-ew-resize flex items-center justify-center z-20 shadow-[0_0_10px_rgba(0,0,0,0.8)]"
             >
-              <div
-                className="split-divider-handle absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-violet-600 border-2 border-white flex items-center justify-center shadow-lg text-white text-[10px]"
-                title="Drag to compare before/after"
-              >
-                <SplitSquareVertical className="w-3.5 h-3.5 pointer-events-none" />
+              <div className="w-6 h-6 rounded-full bg-white text-slate-900 flex items-center justify-center shadow-lg pointer-events-none text-[10px] font-bold">
+                <SplitSquareVertical className="w-3.5 h-3.5" />
               </div>
             </div>
-
-            {/* Labels */}
-            <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded bg-black/70 text-[10px] font-semibold text-slate-300 backdrop-blur-sm pointer-events-none">
-              Before
-            </div>
-            <div className="absolute top-2 right-2 z-10 px-2 py-0.5 rounded bg-violet-950/80 text-[10px] font-semibold text-violet-300 border border-violet-700/50 backdrop-blur-sm pointer-events-none">
-              After
-            </div>
+          </div>
+        ) : workspaceMode === 'background' && backgroundState?.maskBitmap ? (
+          /* BACKGROUND REMOVAL WORKSPACE PREVIEW (Checkerboard / Solid / Image / Blur) */
+          <div
+            className={`relative shadow-2xl rounded border border-[#202738] overflow-hidden ${
+              backgroundState.mode === 'transparent'
+                ? 'bg-[linear-gradient(45deg,#1f2937_25%,transparent_25%),linear-gradient(-45deg,#1f2937_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#1f2937_75%),linear-gradient(-45deg,transparent_75%,#1f2937_75%)] bg-[size:20px_20px] bg-slate-900'
+                : 'bg-black'
+            }`}
+          >
+            <canvas ref={bgPreviewCanvasRef} className="block object-contain" />
           </div>
         ) : (
-          /* STANDARD SINGLE CANVAS VIEW */
+          /* STANDARD SINGLE CANVAS VIEW WITH OVERLAYS */
           <div className="relative shadow-2xl rounded border border-[#202738] overflow-hidden bg-black">
             <canvas ref={canvasRef} className="block object-contain" />
 
-            {/* Mask Ruby Red / Rose Preview Overlay */}
+            {/* Selection / Retouch / Mask Preview Overlay */}
             <canvas
               ref={overlayCanvasRef}
               className="absolute inset-0 pointer-events-none w-full h-full object-contain"
@@ -492,55 +1070,127 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
             {/* Crop Overlay when Crop is active */}
             {isCropping && (
-              <div className="crop-drag-surface absolute inset-0 pointer-events-auto border-2 border-dashed border-violet-400 bg-violet-950/15 cursor-move">
-                {/* 3x3 Rule of thirds grid lines */}
-                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
-                  {Array.from({ length: 9 }).map((_, i) => (
-                    <div key={i} className="border border-white/20" />
-                  ))}
-                </div>
+              <div className="absolute inset-0 pointer-events-none select-none z-20">
+                {/* 4 Dimmed Exterior Masking Panels */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: `${crop.y * 100}%`,
+                  }}
+                  className="bg-black/60 pointer-events-none backdrop-blur-[0.5px]"
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: `${(crop.y + crop.height) * 100}%`,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                  }}
+                  className="bg-black/60 pointer-events-none backdrop-blur-[0.5px]"
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: `${crop.y * 100}%`,
+                    height: `${crop.height * 100}%`,
+                    left: 0,
+                    width: `${crop.x * 100}%`,
+                  }}
+                  className="bg-black/60 pointer-events-none backdrop-blur-[0.5px]"
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: `${crop.y * 100}%`,
+                    height: `${crop.height * 100}%`,
+                    left: `${(crop.x + crop.width) * 100}%`,
+                    right: 0,
+                  }}
+                  className="bg-black/60 pointer-events-none backdrop-blur-[0.5px]"
+                />
 
-                {/* Floating Aspect Ratio Badge & Actions */}
-                <div className="absolute top-2 right-2 bg-black/85 px-2.5 py-1 rounded-md text-[11px] text-white flex items-center gap-2 backdrop-blur-sm border border-[#2b3348] shadow-lg pointer-events-auto">
-                  <span className="font-semibold text-violet-300">
-                    Ratio: {activeRatioOption?.label || crop.aspectRatio.toUpperCase()}
-                  </span>
-                  <button
-                    onClick={() =>
-                      onChangeAdjustments(
-                        {
-                          ...adjustments,
-                          crop: {
-                            ...crop,
-                            active: false,
-                            aspectRatio: 'original',
-                            x: 0,
-                            y: 0,
-                            width: 1,
-                            height: 1,
+                {/* Draggable Active Crop Viewport Box */}
+                <div
+                  style={{
+                    left: `${crop.x * 100}%`,
+                    top: `${crop.y * 100}%`,
+                    width: `${crop.width * 100}%`,
+                    height: `${crop.height * 100}%`,
+                  }}
+                  className="crop-drag-surface absolute pointer-events-auto border-2 border-dashed border-violet-400 bg-violet-500/5 cursor-move shadow-[0_0_0_1px_rgba(255,255,255,0.4)]"
+                >
+                  {/* 3x3 Rule-of-Thirds Grid */}
+                  <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
+                    {Array.from({ length: 9 }).map((_, i) => (
+                      <div key={i} className="border border-white/20" />
+                    ))}
+                  </div>
+
+                  {/* 4 Corner Framing Brackets */}
+                  <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-white pointer-events-none -translate-x-0.5 -translate-y-0.5" />
+                  <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-white pointer-events-none translate-x-0.5 -translate-y-0.5" />
+                  <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-white pointer-events-none -translate-x-0.5 translate-y-0.5" />
+                  <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-white pointer-events-none translate-x-0.5 translate-y-0.5" />
+
+                  {/* Top-Right HUD with Ratio, Reset, and Commit buttons */}
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="absolute -top-9 right-0 bg-[#0d1017]/90 px-2.5 py-1 rounded-md text-[11px] text-white flex items-center gap-2 backdrop-blur-md border border-[#2b3348] shadow-xl pointer-events-auto z-30"
+                  >
+                    <span className="font-semibold text-violet-300">
+                      Ratio: {activeRatioOption?.label || crop.aspectRatio.toUpperCase()}
+                    </span>
+                    <button
+                      onClick={() =>
+                        onChangeAdjustments(
+                          {
+                            ...adjustments,
+                            crop: {
+                              ...crop,
+                              active: false,
+                              isEditing: false,
+                              aspectRatio: 'original',
+                              x: 0,
+                              y: 0,
+                              width: 1,
+                              height: 1,
+                            },
                           },
-                        },
-                        'Reset Crop'
-                      )
-                    }
-                    className="flex items-center gap-1 px-1.5 py-0.5 hover:bg-red-950/60 hover:text-red-300 text-slate-400 rounded text-[10px] transition-colors cursor-pointer"
-                    title="Reset crop to full original photo"
-                  >
-                    <RotateCcw className="w-2.5 h-2.5" />
-                    <span>Reset</span>
-                  </button>
-                  <button
-                    onClick={() =>
-                      onChangeAdjustments(
-                        { ...adjustments, crop: { ...crop } },
-                        'Apply Crop'
-                      )
-                    }
-                    className="p-1 bg-violet-600 hover:bg-violet-500 rounded text-white shadow-sm transition-colors cursor-pointer"
-                    title="Commit Crop"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                  </button>
+                          'Reset Crop'
+                        )
+                      }
+                      className="flex items-center gap-1 px-1.5 py-0.5 hover:bg-red-950/60 hover:text-red-300 text-slate-400 rounded text-[10px] transition-colors cursor-pointer"
+                      title="Reset crop to full original photo"
+                    >
+                      <RotateCcw className="w-2.5 h-2.5" />
+                      <span>Reset</span>
+                    </button>
+                    <button
+                      onClick={() =>
+                        onChangeAdjustments(
+                          {
+                            ...adjustments,
+                            crop: {
+                              ...crop,
+                              active: true,
+                              isEditing: false,
+                            },
+                          },
+                          'Apply Crop'
+                        )
+                      }
+                      className="flex items-center gap-1 px-2 py-0.5 bg-violet-600 hover:bg-violet-500 rounded text-white text-[10px] font-medium shadow-sm transition-colors cursor-pointer"
+                      title="Commit Crop and view cropped composition"
+                    >
+                      <Check className="w-3 h-3" />
+                      <span>Apply</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -548,7 +1198,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         )}
       </div>
 
-      {/* Floating Bottom Toolbar: Zoom & Viewport Controls (Separated from Crop) */}
+      {/* Floating Bottom Toolbar: Zoom & Viewport Controls */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-[#121622]/90 backdrop-blur-md border border-[#232a3b] px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-2 text-xs text-slate-300 z-30">
         <button
           onClick={() => {

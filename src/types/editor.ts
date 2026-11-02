@@ -102,11 +102,12 @@ export interface LocalMask {
 
 export interface CropGeometry {
   active: boolean;
+  isEditing?: boolean; // true while user is adjusting the crop overlay in the viewport
   x: number;      // 0 to 1
   y: number;      // 0 to 1
   width: number;  // 0 to 1
   height: number; // 0 to 1
-  aspectRatio: string; // 'original' | '1:1' | '4:3' | '16:9' | '3:2' | 'free'
+  aspectRatio: string; // 'original' | '1:1' | '2:1' | '3:2' | '4:3' | '4:5' | '5:4' | '7:5' | '5:7' | '9:16' | '16:9' | 'free'
   rotation: number; // -45 to 45 fine rotation degrees
   stepRotation: number; // 0, 90, 180, 270
   flipH: boolean;
@@ -148,6 +149,9 @@ export interface Adjustments {
 
   // Local masks
   masks: LocalMask[];
+
+  // Background removal state
+  backgroundRemoval?: BackgroundRemovalState;
 }
 
 export interface Preset {
@@ -211,3 +215,66 @@ export interface AIAnalysisResult {
   suggestedAdjustments: Partial<Adjustments>;
   confidence: number;
 }
+
+export type WorkspaceMode = 'develop' | 'select' | 'remove' | 'background';
+
+export type SelectionMode = 'select-people' | 'brush' | 'lasso' | 'polygon' | 'color-range';
+export type SelectionOperation = 'add' | 'subtract' | 'new';
+
+export interface PersonDetectionInfo {
+  detected: boolean;
+  count: number;
+  model: 'mediapipe-selfie' | 'local-saliency' | 'none';
+  statusMessage?: string;
+}
+
+export interface SelectionState {
+  mode: SelectionMode;
+  operation: SelectionOperation;
+  brushSize: number; // in pixels
+  brushFeather: number;
+  tolerance: number; // for color range (1-100)
+  contiguous: boolean; // flood fill vs global
+  polygonPoints: { x: number; y: number }[]; // in normalized coordinates
+  lassoPoints: { x: number; y: number }[]; // in normalized coordinates
+  maskBitmap: number[] | null; // 0-255 normalized alpha grid
+  maskWidth: number;
+  maskHeight: number;
+  hasSelection: boolean;
+  isDetectingPeople?: boolean;
+  personInfo?: PersonDetectionInfo | null;
+  localAdjustments: LocalMaskAdjustments;
+}
+
+export interface RetouchState {
+  brushSize: number; // in pixels
+  hardness: number; // 0 to 100
+  feather: number; // 0 to 50
+  mode: 'add' | 'erase';
+  toolMode: 'object' | 'person'; // Remove Object vs Remove Person
+  maskBitmap: number[] | null; // 0-255 alpha grid
+  maskWidth: number;
+  maskHeight: number;
+  hasMask: boolean;
+  isProcessing: boolean;
+  algorithm: 'ai' | 'local';
+  error: string | null;
+  successMessage?: string | null;
+}
+
+export interface BackgroundRemovalState {
+  enabled: boolean;
+  isProcessing: boolean;
+  modelType: 'mediapipe-selfie' | 'local-saliency' | 'none';
+  maskBitmap: number[] | null; // 0-255 alpha values
+  maskWidth: number;
+  maskHeight: number;
+  mode: 'transparent' | 'color' | 'image' | 'blur';
+  color: string;
+  blurRadius: number; // 0-30 px
+  customBgUrl: string | null;
+  feather: number; // 0-20 px
+  edgeShift: number; // -10 to +10 px
+  error: string | null;
+}
+

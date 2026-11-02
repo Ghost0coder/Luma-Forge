@@ -1,5 +1,5 @@
 import { Adjustments, HistogramData } from '../types/editor';
-import { renderImageAdjustments, processPixelData } from './pipeline';
+import { renderImageAdjustments, processPixelData, RenderOptions } from './pipeline';
 import { computeHistogramFromImageData } from './histogram';
 import { RenderWorkerJobMessage, RenderWorkerResponseMessage } from './renderWorker';
 
@@ -19,7 +19,7 @@ class WorkerManager {
     sourceImage: HTMLImageElement | HTMLCanvasElement;
     targetCanvas: HTMLCanvasElement;
     adjustments: Adjustments;
-    options: { maxDimension?: number };
+    options: RenderOptions;
     callback: RenderCallback;
   } | null = null;
 
@@ -67,7 +67,7 @@ class WorkerManager {
     sourceImage: HTMLImageElement | HTMLCanvasElement,
     targetCanvas: HTMLCanvasElement,
     adjustments: Adjustments,
-    options: { maxDimension?: number } = {},
+    options: RenderOptions = {},
     callback: RenderCallback
   ): number {
     this.latestJobId++;
@@ -124,7 +124,7 @@ class WorkerManager {
     sourceImage: HTMLImageElement | HTMLCanvasElement,
     targetCanvas: HTMLCanvasElement,
     adjustments: Adjustments,
-    options: { maxDimension?: number },
+    options: RenderOptions,
     callback: RenderCallback
   ) {
     if (!this.worker) return;
@@ -150,10 +150,16 @@ class WorkerManager {
       const uncroppedW = isRotated90 ? origH : origW;
       const uncroppedH = isRotated90 ? origW : origH;
 
-      const cropX = crop.active ? Math.max(0, Math.min(1, crop.x)) : 0;
-      const cropY = crop.active ? Math.max(0, Math.min(1, crop.y)) : 0;
-      const cropW = crop.active ? Math.max(0.05, Math.min(1 - cropX, crop.width)) : 1;
-      const cropH = crop.active ? Math.max(0.05, Math.min(1 - cropY, crop.height)) : 1;
+      const isCropped =
+        !options.isCropEditing &&
+        !crop.isEditing &&
+        crop.active &&
+        (crop.width < 0.999 || crop.height < 0.999 || crop.x > 0.001 || crop.y > 0.001);
+
+      const cropX = isCropped ? Math.max(0, Math.min(1, crop.x)) : 0;
+      const cropY = isCropped ? Math.max(0, Math.min(1, crop.y)) : 0;
+      const cropW = isCropped ? Math.max(0.05, Math.min(1 - cropX, crop.width)) : 1;
+      const cropH = isCropped ? Math.max(0.05, Math.min(1 - cropY, crop.height)) : 1;
 
       let renderW = Math.round(uncroppedW * cropW);
       let renderH = Math.round(uncroppedH * cropH);

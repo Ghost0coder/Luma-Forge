@@ -21,6 +21,7 @@ import {
   RotateCcw as ResetIcon,
   Wand2,
   UserCheck,
+  Users,
   Brush,
   Eraser,
   Layers,
@@ -41,6 +42,7 @@ interface RightSidebarProps {
   activeMaskId: string | null;
   setActiveMaskId: (id: string | null) => void;
   onGenerateAISubjectMask?: (type: 'ai-subject' | 'ai-background') => Promise<void>;
+  onSelectPeople?: () => void;
   isSegmenting?: boolean;
   isOpen?: boolean;
   onToggleOpen?: () => void;
@@ -57,6 +59,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   activeMaskId,
   setActiveMaskId,
   onGenerateAISubjectMask,
+  onSelectPeople,
   isSegmenting = false,
   isOpen = true,
   onToggleOpen,
@@ -205,6 +208,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         {
           ...adjustments.crop,
           active: false,
+          isEditing: false,
           aspectRatio: 'original',
           x: 0,
           y: 0,
@@ -222,6 +226,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       {
         ...adjustments.crop,
         ...newCrop,
+        isEditing: true,
+        active: true,
       },
       `Aspect Ratio ${ratioKey}`
     );
@@ -1012,18 +1018,30 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 onClick={() =>
                   updateField(
                     'crop',
-                    { ...adjustments.crop, active: !adjustments.crop.active },
-                    adjustments.crop.active ? 'Exit Crop' : 'Enter Crop'
+                    {
+                      ...adjustments.crop,
+                      active: true,
+                      isEditing: !adjustments.crop.isEditing,
+                    },
+                    adjustments.crop.isEditing ? 'Close Crop Overlay' : 'Open Crop Overlay'
                   )
                 }
                 className={`w-full py-1.5 px-3 rounded-md font-medium text-xs transition-colors flex items-center justify-center gap-1.5 ${
-                  adjustments.crop.active
-                    ? 'bg-violet-600 text-white'
+                  adjustments.crop.isEditing
+                    ? 'bg-violet-600 text-white ring-1 ring-violet-400'
+                    : adjustments.crop.active
+                    ? 'bg-violet-950/60 text-violet-300 border border-violet-600/50 hover:bg-violet-900/60'
                     : 'bg-[#151924] hover:bg-[#1f2536] text-slate-300 border border-[#232938]'
                 }`}
               >
                 <CropIcon className="w-3.5 h-3.5" />
-                <span>{adjustments.crop.active ? 'Apply / Close Crop' : 'Crop Overlay Mode'}</span>
+                <span>
+                  {adjustments.crop.isEditing
+                    ? 'Commit / Close Crop Overlay'
+                    : adjustments.crop.active
+                    ? 'Adjust Active Crop'
+                    : 'Crop Overlay Mode'}
+                </span>
               </button>
 
               {/* Aspect Ratio Presets */}
@@ -1033,7 +1051,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   <button
                     onClick={() => handleSetAspectRatio('reset')}
                     className={`font-mono text-[10px] transition-colors cursor-pointer ${
-                      adjustments.crop.active
+                      adjustments.crop.active || adjustments.crop.isEditing
                         ? 'text-violet-400 hover:text-violet-300 underline font-semibold'
                         : 'text-slate-500 cursor-default'
                     }`}
@@ -1045,7 +1063,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
                   {CROP_ASPECT_RATIOS.map((item) => {
                     const isSelected =
-                      adjustments.crop.active && adjustments.crop.aspectRatio === item.key;
+                      (adjustments.crop.isEditing || adjustments.crop.active) &&
+                      adjustments.crop.aspectRatio === item.key;
                     return (
                       <button
                         key={item.key}
@@ -1195,28 +1214,41 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   <span className="text-[10px] text-slate-500 font-mono">100% In-Browser</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    onClick={() => onGenerateAISubjectMask?.('ai-subject')}
-                    disabled={isSegmenting}
-                    className="py-1.5 px-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded font-medium flex items-center justify-center gap-1.5 text-[11px] shadow-sm transition-all disabled:opacity-50"
-                  >
-                    {isSegmenting ? (
-                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <UserCheck className="w-3.5 h-3.5" />
-                    )}
-                    <span>Select Subject</span>
-                  </button>
+                <div className="space-y-1.5">
+                  {onSelectPeople && (
+                    <button
+                      onClick={onSelectPeople}
+                      className="w-full py-1.5 px-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded font-medium flex items-center justify-center gap-1.5 text-[11px] shadow-sm transition-all cursor-pointer"
+                      title="Run MediaPipe Selfie Segmentation to detect and isolate people"
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      <span>Select People (MediaPipe)</span>
+                    </button>
+                  )}
 
-                  <button
-                    onClick={() => onGenerateAISubjectMask?.('ai-background')}
-                    disabled={isSegmenting}
-                    className="py-1.5 px-2 bg-[#1c2232] hover:bg-[#252d42] border border-[#2c364e] text-slate-200 rounded font-medium flex items-center justify-center gap-1.5 text-[11px] transition-all disabled:opacity-50"
-                  >
-                    <Layers className="w-3.5 h-3.5 text-violet-400" />
-                    <span>Select Background</span>
-                  </button>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      onClick={() => onGenerateAISubjectMask?.('ai-subject')}
+                      disabled={isSegmenting}
+                      className="py-1.5 px-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded font-medium flex items-center justify-center gap-1.5 text-[11px] shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      {isSegmenting ? (
+                        <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <UserCheck className="w-3.5 h-3.5" />
+                      )}
+                      <span>Select Subject</span>
+                    </button>
+
+                    <button
+                      onClick={() => onGenerateAISubjectMask?.('ai-background')}
+                      disabled={isSegmenting}
+                      className="py-1.5 px-2 bg-[#1c2232] hover:bg-[#252d42] border border-[#2c364e] text-slate-200 rounded font-medium flex items-center justify-center gap-1.5 text-[11px] transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      <Layers className="w-3.5 h-3.5 text-violet-400" />
+                      <span>Select Background</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 

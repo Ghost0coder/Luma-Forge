@@ -48,7 +48,21 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
       const mime = format;
       const q = format === 'image/png' ? undefined : quality / 100;
-      const dataUrl = exportCanvas.toDataURL(mime, q);
+      let dataUrl = exportCanvas.toDataURL(mime, q);
+
+      // JPEG format lacks alpha channel. Pre-composite over explicit background so transparent areas never turn black!
+      if (format === 'image/jpeg') {
+        const flattenedCanvas = document.createElement('canvas');
+        flattenedCanvas.width = exportCanvas.width;
+        flattenedCanvas.height = exportCanvas.height;
+        const fctx = flattenedCanvas.getContext('2d');
+        if (fctx) {
+          fctx.fillStyle = adjustments.backgroundRemoval?.color || '#ffffff';
+          fctx.fillRect(0, 0, flattenedCanvas.width, flattenedCanvas.height);
+          fctx.drawImage(exportCanvas, 0, 0);
+          dataUrl = flattenedCanvas.toDataURL(mime, q);
+        }
+      }
 
       // Trigger download
       const ext = format === 'image/jpeg' ? 'jpg' : format === 'image/png' ? 'png' : 'webp';

@@ -1,4 +1,4 @@
-import { Adjustments, LocalMask } from '../types/editor';
+import { Adjustments, LocalMask, BackgroundRemovalState } from '../types/editor';
 import {
   generateCurveLUT,
   isCurveDefault,
@@ -13,6 +13,7 @@ import {
 export interface RenderOptions {
   maxDimension?: number; // scale down for smooth preview
   quality?: number;
+  isCropEditing?: boolean; // when true, render full uncropped image so crop overlay can be adjusted
 }
 
 /**
@@ -419,6 +420,61 @@ export function processPixelData(
   if (adjustments.sharpening > 0) {
     applyFastSharpenInMemory(data, renderW, renderH, adjustments.sharpening);
   }
+
+  // 18. Background Removal Compositing (if enabled in project adjustments)
+  if (adjustments.backgroundRemoval?.enabled && adjustments.backgroundRemoval?.maskBitmap) {
+    applyBackgroundRemovalToPixels(data, renderW, renderH, adjustments.backgroundRemoval);
+  }
+}
+
+/**
+ * Composites background removal mask onto output pixel buffer
+ */
+function applyBackgroundRemovalToPixels(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  bgState: BackgroundRemovalState
+): void {
+  const mask = bgState.maskBitmap;
+  if (!mask || mask.length === 0) return;
+  const maskW = bgState.maskWidth || 384;
+  const maskH = bgState.maskHeight || 384;
+
+  const scaleX = maskW / width;
+  const scaleY = maskH / height;
+
+  let solidR = 255;
+  let solidG = 255;
+  let solidB = 255;
+  if (bgState.mode === 'color' && bgState.color) {
+    const hex = bgState.color.replace('#', '');
+    if (hex.length === 6) {
+      solidR = parseInt(hex.substring(0, 2), 16) || 255;
+      solidG = parseInt(hex.substring(2, 4), 16) || 255;
+      solidB = parseInt(hex.substring(4, 6), 16) || 255;
+    }
+  }
+
+  for (let y = 0; y < height; y++) {
+    const my = Math.min(maskH - 1, Math.floor(y * scaleY));
+    const rowOffset = y * width * 4;
+    for (let x = 0; x < width; x++) {
+      const mx = Math.min(maskW - 1, Math.floor(x * scaleX));
+      const maskVal = mask[my * maskW + mx] || 0;
+      const alpha = maskVal / 255;
+      const idx = rowOffset + x * 4;
+
+      if (bgState.mode === 'transparent') {
+        data[idx + 3] = Math.round(data[idx + 3] * alpha);
+      } else if (bgState.mode === 'color') {
+        data[idx] = Math.round(data[idx] * alpha + solidR * (1 - alpha));
+        data[idx + 1] = Math.round(data[idx + 1] * alpha + solidG * (1 - alpha));
+        data[idx + 2] = Math.round(data[idx + 2] * alpha + solidB * (1 - alpha));
+        data[idx + 3] = 255;
+      }
+    }
+  }
 }
 
 /**
@@ -442,10 +498,16 @@ export function renderImageAdjustments(
   const uncroppedW = isRotated90 ? origH : origW;
   const uncroppedH = isRotated90 ? origW : origH;
 
-  const cropX = crop.active ? Math.max(0, Math.min(1, crop.x)) : 0;
-  const cropY = crop.active ? Math.max(0, Math.min(1, crop.y)) : 0;
-  const cropW = crop.active ? Math.max(0.05, Math.min(1 - cropX, crop.width)) : 1;
-  const cropH = crop.active ? Math.max(0.05, Math.min(1 - cropY, crop.height)) : 1;
+  const isCropped =
+    !options.isCropEditing &&
+    !crop.isEditing &&
+    crop.active &&
+    (crop.width < 0.999 || crop.height < 0.999 || crop.x > 0.001 || crop.y > 0.001);
+
+  const cropX = isCropped ? Math.max(0, Math.min(1, crop.x)) : 0;
+  const cropY = isCropped ? Math.max(0, Math.min(1, crop.y)) : 0;
+  const cropW = isCropped ? Math.max(0.05, Math.min(1 - cropX, crop.width)) : 1;
+  const cropH = isCropped ? Math.max(0.05, Math.min(1 - cropY, crop.height)) : 1;
 
   let renderW = Math.round(uncroppedW * cropW);
   let renderH = Math.round(uncroppedH * cropH);
