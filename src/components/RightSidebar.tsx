@@ -25,11 +25,14 @@ import {
   Brush,
   Eraser,
   Layers,
+  Disc,
+  Aperture,
 } from 'lucide-react';
-import { Adjustments, HistogramData, LocalMask, AIAnalysisResult } from '../types/editor';
+import { Adjustments, HistogramData, LocalMask, AIAnalysisResult, DetailAdjustments, OpticsAdjustments } from '../types/editor';
 import { HistogramView } from './HistogramView';
 import { ToneCurveGraph } from './ToneCurveGraph';
 import { HSLMixerPanel } from './HSLMixerPanel';
+import { ColorGradingPanel } from './ColorGradingPanel';
 import { CROP_ASPECT_RATIOS, calculateAspectCrop } from '../engine/cropUtils';
 
 interface RightSidebarProps {
@@ -77,6 +80,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     hsl: false,
     grading: false,
     detail: false,
+    effects: false,
+    optics: false,
     geometry: false,
     masks: false,
   });
@@ -97,6 +102,48 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         [field]: value,
       },
       actionDesc
+    );
+  };
+
+  const updateDetail = (field: keyof DetailAdjustments, val: number, desc: string) => {
+    const currentDetails = adjustments.details || {
+      sharpenAmount: adjustments.sharpening || 0,
+      sharpenRadius: 1.0,
+      sharpenDetail: 25,
+      sharpenMasking: 0,
+      noiseLuminance: adjustments.noiseReduction || 0,
+      noiseLuminanceDetail: 50,
+      noiseLuminanceContrast: 0,
+      noiseColor: 0,
+      noiseColorDetail: 50,
+      noiseSmoothness: 50,
+    };
+    const newDetails = { ...currentDetails, [field]: val };
+    onChangeAdjustments(
+      {
+        ...adjustments,
+        details: newDetails,
+        sharpening: newDetails.sharpenAmount,
+        noiseReduction: newDetails.noiseLuminance,
+      },
+      desc
+    );
+  };
+
+  const updateOptics = (field: keyof OpticsAdjustments, val: any, desc: string) => {
+    const currentOptics = adjustments.optics || {
+      distortion: 0,
+      chromaticAberration: false,
+      caRedCyan: 0,
+      caBlueYellow: 0,
+      vignetteCorrection: 0,
+    };
+    onChangeAdjustments(
+      {
+        ...adjustments,
+        optics: { ...currentOptics, [field]: val },
+      },
+      desc
     );
   };
 
@@ -131,18 +178,82 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     );
   };
 
+  // Reset Color Grading section
+  const resetGrading = () => {
+    onChangeAdjustments(
+      {
+        ...adjustments,
+        colorGrading: {
+          shadows: { hue: 0, saturation: 0, luminance: 0 },
+          midtones: { hue: 0, saturation: 0, luminance: 0 },
+          highlights: { hue: 0, saturation: 0, luminance: 0 },
+          global: { hue: 0, saturation: 0, luminance: 0 },
+          blending: 50,
+          balance: 0,
+          strength: 100,
+        },
+      },
+      'Reset Color Grading'
+    );
+  };
+
   // Reset Detail section
   const resetDetail = () => {
     onChangeAdjustments(
       {
         ...adjustments,
         sharpening: 0,
+        noiseReduction: 0,
+        details: {
+          sharpenAmount: 0,
+          sharpenRadius: 1.0,
+          sharpenDetail: 25,
+          sharpenMasking: 0,
+          noiseLuminance: 0,
+          noiseLuminanceDetail: 50,
+          noiseLuminanceContrast: 0,
+          noiseColor: 0,
+          noiseColorDetail: 50,
+          noiseSmoothness: 50,
+        },
+      },
+      'Reset Detail'
+    );
+  };
+
+  // Reset Effects section
+  const resetEffects = () => {
+    onChangeAdjustments(
+      {
+        ...adjustments,
+        texture: 0,
         clarity: 0,
         dehaze: 0,
         vignette: 0,
+        vignetteMidpoint: 50,
+        vignetteFeather: 50,
         grain: 0,
+        grainSize: 25,
+        grainRoughness: 50,
       },
-      'Reset Detail'
+      'Reset Effects'
+    );
+  };
+
+  // Reset Optics section
+  const resetOptics = () => {
+    onChangeAdjustments(
+      {
+        ...adjustments,
+        optics: {
+          distortion: 0,
+          chromaticAberration: false,
+          caRedCyan: 0,
+          caBlueYellow: 0,
+          vignetteCorrection: 0,
+        },
+      },
+      'Reset Optics'
     );
   };
 
@@ -884,15 +995,52 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           )}
         </div>
 
-        {/* 5. DETAIL & EFFECTS */}
+        {/* 5. COLOR GRADING (3-WAY & GLOBAL) */}
+        <div className="pt-3 space-y-3">
+          <div
+            onClick={() => toggleSection('grading')}
+            className="flex items-center justify-between cursor-pointer group"
+          >
+            <span className="flex items-center gap-2 text-xs font-semibold text-slate-200 group-hover:text-white">
+              <Disc className="w-3.5 h-3.5 text-rose-400" />
+              Color Grading (3-Way & Global)
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  resetGrading();
+                }}
+                title="Reset color grading adjustments"
+                className="text-slate-500 hover:text-slate-300 p-0.5 cursor-pointer"
+              >
+                <ResetIcon className="w-3 h-3" />
+              </button>
+              {openSections.grading ? (
+                <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              )}
+            </div>
+          </div>
+
+          {openSections.grading && (
+            <ColorGradingPanel
+              colorGrading={adjustments.colorGrading}
+              onChange={(grading) => updateField('colorGrading', grading, 'Color Grading Edit')}
+            />
+          )}
+        </div>
+
+        {/* 6. DETAIL (SHARPENING & NOISE REDUCTION) */}
         <div className="pt-3 space-y-3">
           <div
             onClick={() => toggleSection('detail')}
             className="flex items-center justify-between cursor-pointer group"
           >
             <span className="flex items-center gap-2 text-xs font-semibold text-slate-200 group-hover:text-white">
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              Detail & Effects
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              Detail (Sharpening & Noise)
             </span>
             <div className="flex items-center gap-1.5">
               <button
@@ -901,7 +1049,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   resetDetail();
                 }}
                 title="Reset detail adjustments"
-                className="text-slate-500 hover:text-slate-300 p-0.5"
+                className="text-slate-500 hover:text-slate-300 p-0.5 cursor-pointer"
               >
                 <ResetIcon className="w-3 h-3" />
               </button>
@@ -914,22 +1062,244 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           </div>
 
           {openSections.detail && (
+            <div className="space-y-3 text-xs">
+              {/* Sharpening Subsection */}
+              <div className="p-2 rounded-lg bg-[#141822] border border-[#202738] space-y-2">
+                <span className="text-[11px] font-semibold text-slate-300 block">Sharpening</span>
+
+                {/* Sharpen Amount */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Amount</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.details?.sharpenAmount ?? adjustments.sharpening}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="150"
+                    value={adjustments.details?.sharpenAmount ?? adjustments.sharpening}
+                    onDoubleClick={() => updateDetail('sharpenAmount', 0, 'Reset Sharpen Amount')}
+                    onChange={(e) => updateDetail('sharpenAmount', parseInt(e.target.value, 10), 'Sharpen Amount')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Sharpen Radius */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Radius</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {(adjustments.details?.sharpenRadius ?? 1.0).toFixed(1)} px
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="3.0"
+                    step="0.1"
+                    value={adjustments.details?.sharpenRadius ?? 1.0}
+                    onDoubleClick={() => updateDetail('sharpenRadius', 1.0, 'Reset Sharpen Radius')}
+                    onChange={(e) => updateDetail('sharpenRadius', parseFloat(e.target.value), 'Sharpen Radius')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Sharpen Detail */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Detail (Suppress Noise)</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.details?.sharpenDetail ?? 25}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.details?.sharpenDetail ?? 25}
+                    onDoubleClick={() => updateDetail('sharpenDetail', 25, 'Reset Sharpen Detail')}
+                    onChange={(e) => updateDetail('sharpenDetail', parseInt(e.target.value, 10), 'Sharpen Detail')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Sharpen Masking */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400" title="Edge detection mask: protects flat areas like sky/skin">
+                      Masking (Edge Protect)
+                    </span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.details?.sharpenMasking ?? 0}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.details?.sharpenMasking ?? 0}
+                    onDoubleClick={() => updateDetail('sharpenMasking', 0, 'Reset Sharpen Masking')}
+                    onChange={(e) => updateDetail('sharpenMasking', parseInt(e.target.value, 10), 'Sharpen Masking')}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              {/* Noise Reduction Subsection */}
+              <div className="p-2 rounded-lg bg-[#141822] border border-[#202738] space-y-2">
+                <span className="text-[11px] font-semibold text-slate-300 block">Noise Reduction</span>
+
+                {/* Luminance NR */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Luminance</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.details?.noiseLuminance ?? adjustments.noiseReduction}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.details?.noiseLuminance ?? adjustments.noiseReduction}
+                    onDoubleClick={() => updateDetail('noiseLuminance', 0, 'Reset Luminance NR')}
+                    onChange={(e) => updateDetail('noiseLuminance', parseInt(e.target.value, 10), 'Luminance NR')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Luminance Detail */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Luminance Detail</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.details?.noiseLuminanceDetail ?? 50}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.details?.noiseLuminanceDetail ?? 50}
+                    onDoubleClick={() => updateDetail('noiseLuminanceDetail', 50, 'Reset Luminance Detail')}
+                    onChange={(e) => updateDetail('noiseLuminanceDetail', parseInt(e.target.value, 10), 'Luminance Detail')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Luminance Contrast */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Luminance Contrast</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.details?.noiseLuminanceContrast ?? 0}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.details?.noiseLuminanceContrast ?? 0}
+                    onDoubleClick={() => updateDetail('noiseLuminanceContrast', 0, 'Reset Luminance Contrast')}
+                    onChange={(e) => updateDetail('noiseLuminanceContrast', parseInt(e.target.value, 10), 'Luminance Contrast')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Color Noise Reduction */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400" title="Removes chrominance color speckles">
+                      Color Noise Reduction
+                    </span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.details?.noiseColor ?? 0}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.details?.noiseColor ?? 0}
+                    onDoubleClick={() => updateDetail('noiseColor', 0, 'Reset Color NR')}
+                    onChange={(e) => updateDetail('noiseColor', parseInt(e.target.value, 10), 'Color NR')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Color Smoothness */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Color Smoothness</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.details?.noiseSmoothness ?? 50}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.details?.noiseSmoothness ?? 50}
+                    onDoubleClick={() => updateDetail('noiseSmoothness', 50, 'Reset Color Smoothness')}
+                    onChange={(e) => updateDetail('noiseSmoothness', parseInt(e.target.value, 10), 'Color Smoothness')}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 7. EFFECTS (TEXTURE, CLARITY, DEHAZE, VIGNETTE, GRAIN) */}
+        <div className="pt-3 space-y-3">
+          <div
+            onClick={() => toggleSection('effects')}
+            className="flex items-center justify-between cursor-pointer group"
+          >
+            <span className="flex items-center gap-2 text-xs font-semibold text-slate-200 group-hover:text-white">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400" />
+              Effects (Texture, Clarity, Grain)
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  resetEffects();
+                }}
+                title="Reset effects adjustments"
+                className="text-slate-500 hover:text-slate-300 p-0.5 cursor-pointer"
+              >
+                <ResetIcon className="w-3 h-3" />
+              </button>
+              {openSections.effects ? (
+                <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              )}
+            </div>
+          </div>
+
+          {openSections.effects && (
             <div className="space-y-2.5 text-xs">
-              {/* Sharpening */}
+              {/* Texture */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400">Sharpening</span>
+                  <span className="text-slate-400" title="High-frequency detail boost without haloing">
+                    Texture
+                  </span>
                   <span className="font-mono text-slate-300 tabular-nums">
-                    {adjustments.sharpening}
+                    {(adjustments.texture || 0) > 0 ? `+${adjustments.texture}` : adjustments.texture || 0}
                   </span>
                 </div>
                 <input
                   type="range"
-                  min="0"
+                  min="-100"
                   max="100"
-                  value={adjustments.sharpening}
-                  onDoubleClick={() => updateField('sharpening', 0, 'Reset Sharpening')}
-                  onChange={(e) => updateField('sharpening', parseInt(e.target.value, 10), 'Sharpening')}
+                  value={adjustments.texture || 0}
+                  onDoubleClick={() => updateField('texture', 0, 'Reset Texture')}
+                  onChange={(e) => updateField('texture', parseInt(e.target.value, 10), 'Texture')}
                   className="w-full"
                 />
               </div>
@@ -937,7 +1307,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               {/* Clarity */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400">Clarity</span>
+                  <span className="text-slate-400" title="Mid-tone local contrast">Clarity</span>
                   <span className="font-mono text-slate-300 tabular-nums">
                     {adjustments.clarity > 0 ? `+${adjustments.clarity}` : adjustments.clarity}
                   </span>
@@ -953,40 +1323,283 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 />
               </div>
 
-              {/* Vignette Amount */}
+              {/* Dehaze */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400">Vignette Shading</span>
+                  <span className="text-slate-400" title="Atmospheric haze removal">Dehaze</span>
                   <span className="font-mono text-slate-300 tabular-nums">
-                    {adjustments.vignette > 0 ? `+${adjustments.vignette}` : adjustments.vignette}
+                    {adjustments.dehaze > 0 ? `+${adjustments.dehaze}` : adjustments.dehaze}
                   </span>
                 </div>
                 <input
                   type="range"
                   min="-100"
                   max="100"
-                  value={adjustments.vignette}
-                  onDoubleClick={() => updateField('vignette', 0, 'Reset Vignette')}
-                  onChange={(e) => updateField('vignette', parseInt(e.target.value, 10), 'Vignette')}
+                  value={adjustments.dehaze}
+                  onDoubleClick={() => updateField('dehaze', 0, 'Reset Dehaze')}
+                  onChange={(e) => updateField('dehaze', parseInt(e.target.value, 10), 'Dehaze')}
                   className="w-full"
                 />
               </div>
 
-              {/* Film Grain */}
+              {/* Vignette Subsection */}
+              <div className="p-2 rounded-lg bg-[#141822] border border-[#202738] space-y-2 mt-2">
+                <span className="text-[11px] font-semibold text-slate-300 block">Vignette</span>
+
+                {/* Vignette Amount */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Amount</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.vignette > 0 ? `+${adjustments.vignette}` : adjustments.vignette}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    value={adjustments.vignette}
+                    onDoubleClick={() => updateField('vignette', 0, 'Reset Vignette')}
+                    onChange={(e) => updateField('vignette', parseInt(e.target.value, 10), 'Vignette')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Vignette Midpoint */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Midpoint</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.vignetteMidpoint ?? 50}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.vignetteMidpoint ?? 50}
+                    onDoubleClick={() => updateField('vignetteMidpoint', 50, 'Reset Vignette Midpoint')}
+                    onChange={(e) => updateField('vignetteMidpoint', parseInt(e.target.value, 10), 'Vignette Midpoint')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Vignette Feather */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Feather</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.vignetteFeather ?? 50}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.vignetteFeather ?? 50}
+                    onDoubleClick={() => updateField('vignetteFeather', 50, 'Reset Vignette Feather')}
+                    onChange={(e) => updateField('vignetteFeather', parseInt(e.target.value, 10), 'Vignette Feather')}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              {/* Film Grain Subsection */}
+              <div className="p-2 rounded-lg bg-[#141822] border border-[#202738] space-y-2 mt-2">
+                <span className="text-[11px] font-semibold text-slate-300 block">Film Grain</span>
+
+                {/* Grain Amount */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Amount</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.grain}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.grain}
+                    onDoubleClick={() => updateField('grain', 0, 'Reset Grain')}
+                    onChange={(e) => updateField('grain', parseInt(e.target.value, 10), 'Grain')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Grain Size */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Size</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.grainSize ?? 25}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.grainSize ?? 25}
+                    onDoubleClick={() => updateField('grainSize', 25, 'Reset Grain Size')}
+                    onChange={(e) => updateField('grainSize', parseInt(e.target.value, 10), 'Grain Size')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Grain Roughness */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Roughness</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {adjustments.grainRoughness ?? 50}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.grainRoughness ?? 50}
+                    onDoubleClick={() => updateField('grainRoughness', 50, 'Reset Grain Roughness')}
+                    onChange={(e) => updateField('grainRoughness', parseInt(e.target.value, 10), 'Grain Roughness')}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 8. OPTICS (DISTORTION, CHROMATIC ABERRATION, LENS VIGNETTE) */}
+        <div className="pt-3 space-y-3">
+          <div
+            onClick={() => toggleSection('optics')}
+            className="flex items-center justify-between cursor-pointer group"
+          >
+            <span className="flex items-center gap-2 text-xs font-semibold text-slate-200 group-hover:text-white">
+              <Aperture className="w-3.5 h-3.5 text-teal-400" />
+              Optics (Distortion & CA)
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  resetOptics();
+                }}
+                title="Reset optics adjustments"
+                className="text-slate-500 hover:text-slate-300 p-0.5 cursor-pointer"
+              >
+                <ResetIcon className="w-3 h-3" />
+              </button>
+              {openSections.optics ? (
+                <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              )}
+            </div>
+          </div>
+
+          {openSections.optics && (
+            <div className="space-y-3 text-xs">
+              {/* Lens Distortion */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400">Film Grain</span>
+                  <span className="text-slate-400" title="Negative: Pincushion correction, Positive: Barrel correction">
+                    Lens Distortion
+                  </span>
                   <span className="font-mono text-slate-300 tabular-nums">
-                    {adjustments.grain}
+                    {(adjustments.optics?.distortion ?? 0) > 0
+                      ? `+${adjustments.optics?.distortion}`
+                      : adjustments.optics?.distortion ?? 0}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={adjustments.optics?.distortion ?? 0}
+                  onDoubleClick={() => updateOptics('distortion', 0, 'Reset Distortion')}
+                  onChange={(e) => updateOptics('distortion', parseInt(e.target.value, 10), 'Distortion')}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Chromatic Aberration Correction */}
+              <div className="p-2 rounded-lg bg-[#141822] border border-[#202738] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-300">
+                    Chromatic Aberration (Defringe)
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={adjustments.optics?.chromaticAberration ?? false}
+                      onChange={(e) => updateOptics('chromaticAberration', e.target.checked, 'Toggle CA Correction')}
+                      className="sr-only peer"
+                    />
+                    <div className="w-7 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-teal-600" />
+                  </label>
+                </div>
+
+                {/* Red / Cyan Shift */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Red / Cyan Shift</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {(adjustments.optics?.caRedCyan ?? 0) > 0
+                        ? `+${adjustments.optics?.caRedCyan}`
+                        : adjustments.optics?.caRedCyan ?? 0}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    value={adjustments.optics?.caRedCyan ?? 0}
+                    onDoubleClick={() => updateOptics('caRedCyan', 0, 'Reset Red/Cyan Shift')}
+                    onChange={(e) => updateOptics('caRedCyan', parseInt(e.target.value, 10), 'Red/Cyan Shift')}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Blue / Yellow Shift */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Blue / Yellow Shift</span>
+                    <span className="font-mono text-slate-300 tabular-nums">
+                      {(adjustments.optics?.caBlueYellow ?? 0) > 0
+                        ? `+${adjustments.optics?.caBlueYellow}`
+                        : adjustments.optics?.caBlueYellow ?? 0}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    value={adjustments.optics?.caBlueYellow ?? 0}
+                    onDoubleClick={() => updateOptics('caBlueYellow', 0, 'Reset Blue/Yellow Shift')}
+                    onChange={(e) => updateOptics('caBlueYellow', parseInt(e.target.value, 10), 'Blue/Yellow Shift')}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              {/* Lens Vignette Profile Correction */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400" title="Compensates for optical wide-angle corner shading">
+                    Lens Vignette Correction
+                  </span>
+                  <span className="font-mono text-slate-300 tabular-nums">
+                    {adjustments.optics?.vignetteCorrection ?? 0}
                   </span>
                 </div>
                 <input
                   type="range"
                   min="0"
                   max="100"
-                  value={adjustments.grain}
-                  onDoubleClick={() => updateField('grain', 0, 'Reset Grain')}
-                  onChange={(e) => updateField('grain', parseInt(e.target.value, 10), 'Grain')}
+                  value={adjustments.optics?.vignetteCorrection ?? 0}
+                  onDoubleClick={() => updateOptics('vignetteCorrection', 0, 'Reset Vignette Correction')}
+                  onChange={(e) => updateOptics('vignetteCorrection', parseInt(e.target.value, 10), 'Vignette Correction')}
                   className="w-full"
                 />
               </div>

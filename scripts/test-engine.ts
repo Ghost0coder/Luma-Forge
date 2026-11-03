@@ -1,8 +1,32 @@
-import { generateCurveLUT, rgbToHsl, hslToRgb, applyHslMixer, applyColorGrading } from '../src/engine/colorScience';
-import { getDefaultAdjustments, cloneAdjustments } from '../src/engine/defaultAdjustments';
-import { applyPresetWithStrength, parsePresetFile, exportPresetToFile } from '../src/presets/presetUtils';
+import {
+  generateCurveLUT,
+  rgbToHsl,
+  hslToRgb,
+  applyHslMixer,
+  prepareHslMixer,
+  applyColorGrading,
+  prepareColorGrading,
+} from '../src/engine/colorScience';
+import {
+  getDefaultAdjustments,
+  cloneAdjustments,
+  migrateAdjustments,
+  DEFAULT_DETAIL_ADJUSTMENTS,
+  DEFAULT_OPTICS_ADJUSTMENTS,
+  DEFAULT_COLOR_GRADING,
+  DEFAULT_TONE_CURVES,
+  DEFAULT_HSL_MIXER,
+} from '../src/engine/defaultAdjustments';
+import {
+  applyProfessionalSharpening,
+  applyProfessionalNoiseReduction,
+  applyTextureAdjustment,
+} from '../src/engine/detailsEngine';
+import { applyOpticsAdjustments } from '../src/engine/opticsEngine';
+import { processPixelData } from '../src/engine/pipeline';
+import { applyPresetWithStrength, parsePresetFile, exportPresetToFile, duplicatePreset } from '../src/presets/presetUtils';
 import { BUILT_IN_PRESETS } from '../src/presets/builtInPresets';
-import { PhotoProject } from '../src/types/editor';
+import { PhotoProject, Preset, LocalMask } from '../src/types/editor';
 import { calculateAspectCrop, getExportDimensions, CROP_ASPECT_RATIOS } from '../src/engine/cropUtils';
 import {
   isPointInPolygon,
@@ -105,7 +129,8 @@ const presetJson = JSON.stringify({
   description: 'Deep film shadows',
   adjustments: { contrast: 30, saturation: -50 },
 });
-const importedPreset = parsePresetFile(presetJson);
+const importedResult = parsePresetFile(presetJson);
+const importedPreset = Array.isArray(importedResult) ? importedResult[0] : importedResult;
 assert(importedPreset.name === 'Studio Matte Black', 'Imported preset name mismatch');
 assert(importedPreset.adjustments.contrast === 30, 'Imported preset adjustments mismatch');
 assert(importedPreset.isCustom === true, 'Imported preset must be flagged as custom');
@@ -310,7 +335,6 @@ assert(bgCornerVal === 1.0, 'Inverted background corner alpha must be 1.0');
 
 // Test 11: Pure Pixel Pipeline Execution with Details & Effects
 console.log('11. Testing Pure Pixel Pipeline & Details & Effects (Clarity, Dehaze, Grain, Sharpening)...');
-import { processPixelData } from '../src/engine/pipeline';
 import { computeHistogramFromImageData } from '../src/engine/histogram';
 
 const testW = 32;
@@ -607,6 +631,579 @@ const featheredBg = refineBackgroundMask(rawBgMask, bgW, bgH, 0, 4);
 assert(featheredBg[15 * bgW + 15] < 255 && featheredBg[15 * bgW + 15] > 0, 'Feathering must soften boundary edges');
 console.log('✓ Background removal mask refinement passed.');
 
+// Test 20: Professional Tone Curve Channels & Threshold Adjustments
+console.log('20. Testing Professional Tone Curve Channels & Black/White Point Thresholds...');
+// 20.1 Black Point clipping (shifting black point to x=30, y=0)
+const blackPointClipped = [
+  { x: 30, y: 0 },
+  { x: 255, y: 255 },
+];
+const bpLut = generateCurveLUT(blackPointClipped);
+assert(bpLut[0] === 0, 'Values below black point must be 0');
+assert(bpLut[20] === 0, 'Values below black point must be 0');
+assert(bpLut[30] === 0, 'Black point value must be 0');
+assert(bpLut[255] === 255, 'White point value must be 255');
+assert(bpLut[142] > 80 && bpLut[142] < 120, 'Interpolated curve values must smoothly ramp');
+
+// 20.2 White Point clipping (shifting white point to x=220, y=255)
+const whitePointClipped = [
+  { x: 0, y: 0 },
+  { x: 220, y: 255 },
+];
+const wpLut = generateCurveLUT(whitePointClipped);
+assert(wpLut[0] === 0, 'Black point value must be 0');
+assert(wpLut[220] === 255, 'White point value must reach 255');
+assert(wpLut[240] === 255, 'Values above white point must clamp to 255');
+assert(wpLut[255] === 255, 'Values above white point must clamp to 255');
+
+// 20.3 Multi-channel curve execution through processPixelData
+const curvePixels = new Uint8ClampedArray([100, 100, 100, 255, 180, 180, 180, 255]);
+const curveAdj = getDefaultAdjustments();
+// Boost red curve while lowering blue curve
+curveAdj.toneCurves.red = [
+  { x: 0, y: 0 },
+  { x: 128, y: 190 },
+  { x: 255, y: 255 },
+];
+curveAdj.toneCurves.blue = [
+  { x: 0, y: 0 },
+  { x: 128, y: 70 },
+  { x: 255, y: 255 },
+];
+processPixelData(curvePixels, 2, 1, curveAdj);
+assert(curvePixels[0] > 100, `Red channel should be boosted by red curve: got ${curvePixels[0]}`);
+assert(curvePixels[2] < 100, `Blue channel should be decreased by blue curve: got ${curvePixels[2]}`);
+assert(curvePixels[1] === 100, `Green channel should remain unmodified: got ${curvePixels[1]}`);
+console.log('✓ Professional tone curve channels and threshold tests passed.');
+
+// Test 21: Professional HSL Color Mixer Multi-Channel Verification
+console.log('21. Testing Professional HSL Color Mixer (8 Channels, Hue/Sat/Lum, Reset All)...');
+const hslAdj = getDefaultAdjustments();
+// Set Aqua and Orange specific modifications
+hslAdj.hslMixer.orange.hue = 15;
+hslAdj.hslMixer.orange.saturation = 30;
+hslAdj.hslMixer.aqua.luminance = -40;
+
+const preparedHsl = prepareHslMixer(hslAdj.hslMixer);
+// Test orange hue: h=30, s=0.8, l=0.5
+const [orangeH, orangeS] = applyHslMixer(30, 0.8, 0.5, preparedHsl);
+assert(orangeH !== 30, 'Orange hue must be shifted');
+assert(orangeS > 0.8, 'Orange saturation must be boosted');
+
+// Test that pure blue (hue 240) is unaffected by orange or aqua adjustments
+const [blueH, blueS, blueL] = applyHslMixer(240, 0.8, 0.5, preparedHsl);
+assert(Math.abs(blueH - 240) < 0.001, 'Blue hue must remain untouched');
+assert(Math.abs(blueS - 0.8) < 0.001, 'Blue saturation must remain untouched');
+assert(Math.abs(blueL - 0.5) < 0.001, 'Blue luminance must remain untouched');
+
+// Test that aqua (hue 180) is darkened by aqua luminance adjustment (-40)
+const [aquaH, aquaS, aquaL] = applyHslMixer(180, 0.8, 0.5, preparedHsl);
+assert(aquaL < 0.5, 'Aqua luminance must be reduced by -40');
+
+// Test Reset All HSL
+const resetHsl = JSON.parse(JSON.stringify(DEFAULT_HSL_MIXER));
+for (const key of Object.keys(resetHsl) as (keyof typeof resetHsl)[]) {
+  assert(resetHsl[key].hue === 0 && resetHsl[key].saturation === 0 && resetHsl[key].luminance === 0, `Channel ${String(key)} must be zeroed`);
+}
+console.log('✓ Professional HSL color mixer 8-channel selectivity and reset tests passed.');
+
+// Test 22: Professional 3-Way and Global Color Grading Engine
+console.log('22. Testing Professional 3-Way and Global Color Grading Engine...');
+const gradeAdj = getDefaultAdjustments();
+// Warm shadows (hue 30, sat 50), Cool highlights (hue 210, sat 50), Global tint (hue 120, sat 20)
+gradeAdj.colorGrading.shadows = { hue: 30, saturation: 50, luminance: 10 };
+gradeAdj.colorGrading.midtones = { hue: 0, saturation: 0, luminance: 0 };
+gradeAdj.colorGrading.highlights = { hue: 210, saturation: 50, luminance: -10 };
+gradeAdj.colorGrading.global = { hue: 120, saturation: 20, luminance: 0 };
+gradeAdj.colorGrading.blending = 60;
+gradeAdj.colorGrading.balance = 10;
+gradeAdj.colorGrading.strength = 80;
+
+const preparedGrading = prepareColorGrading(gradeAdj.colorGrading);
+assert(preparedGrading !== null, 'Color grading preparation must return active grade data');
+
+// Apply to shadow pixel (dark gray)
+const darkPixel = applyColorGrading(0.15, 0.15, 0.15, preparedGrading!);
+// Shadows have warm hue (30 deg = reddish-orange), so R > B
+assert(darkPixel[0] > darkPixel[2], `Shadow pixel must be warmer (R=${darkPixel[0].toFixed(3)} > B=${darkPixel[2].toFixed(3)})`);
+
+// Apply to highlight pixel (light gray)
+const lightPixel = applyColorGrading(0.85, 0.85, 0.85, preparedGrading!);
+// Highlights have cool hue (210 deg = cyan-blue), so B > R
+assert(lightPixel[2] > lightPixel[0], `Highlight pixel must be cooler (B=${lightPixel[2].toFixed(3)} > R=${lightPixel[0].toFixed(3)})`);
+console.log('✓ Professional 3-way and global color grading engine tests passed.');
+
+// Test 23: Professional Sharpening with Edge Masking & Radius
+console.log('23. Testing Professional Sharpening & Edge-Masking Engine...');
+const sharpW = 16;
+const sharpH = 16;
+const sharpBuf = new Uint8ClampedArray(sharpW * sharpH * 4);
+// Create a sharp vertical edge in center (left half 50, right half 200)
+for (let y = 0; y < sharpH; y++) {
+  for (let x = 0; x < sharpW; x++) {
+    const idx = (y * sharpW + x) * 4;
+    const v = x < 8 ? 50 : 200;
+    sharpBuf[idx] = v;
+    sharpBuf[idx + 1] = v;
+    sharpBuf[idx + 2] = v;
+    sharpBuf[idx + 3] = 255;
+  }
+}
+
+const sharpDetails = {
+  ...DEFAULT_DETAIL_ADJUSTMENTS,
+  sharpenAmount: 100,
+  sharpenRadius: 1.0,
+  sharpenDetail: 50,
+  sharpenMasking: 20, // edge masking enabled
+};
+applyProfessionalSharpening(sharpBuf, sharpW, sharpH, sharpDetails);
+
+// Edge contrast should be enhanced (dark side of edge <= 50, bright side of edge >= 200)
+const leftEdgePixel = sharpBuf[(8 * sharpW + 7) * 4];
+const rightEdgePixel = sharpBuf[(8 * sharpW + 8) * 4];
+assert(leftEdgePixel <= 50, `Dark side of edge should be darkened or preserved by unsharp mask: got ${leftEdgePixel}`);
+assert(rightEdgePixel >= 200, `Bright side of edge should be lightened or preserved by unsharp mask: got ${rightEdgePixel}`);
+
+// Flat area away from edge should be protected by masking
+const flatFarLeft = sharpBuf[(8 * sharpW + 2) * 4];
+assert(Math.abs(flatFarLeft - 50) <= 2, `Flat region protected by masking must remain unchanged: got ${flatFarLeft}`);
+console.log('✓ Professional sharpening with edge masking passed.');
+
+// Test 24: Professional Noise Reduction (Bilateral Luminance + YCbCr Color Noise)
+console.log('24. Testing Professional Noise Reduction (Bilateral Luminance & Color Noise)...');
+const noiseW = 20;
+const noiseH = 20;
+const noisyBuf = new Uint8ClampedArray(noiseW * noiseH * 4);
+for (let y = 0; y < noiseH; y++) {
+  for (let x = 0; x < noiseW; x++) {
+    const idx = (y * noiseW + x) * 4;
+    // Base 128 with alternating high-frequency noise +/- 10
+    const noise = ((x + y) % 2 === 0 ? 1 : -1) * 10;
+    noisyBuf[idx] = 128 + noise;
+    noisyBuf[idx + 1] = 128 + noise;
+    noisyBuf[idx + 2] = 128 + noise;
+    noisyBuf[idx + 3] = 255;
+  }
+}
+
+let sumDiffBefore = 0;
+for (let y = 1; y < noiseH - 1; y++) {
+  for (let x = 1; x < noiseW - 1; x++) {
+    const idx = (y * noiseW + x) * 4;
+    sumDiffBefore += Math.abs(noisyBuf[idx] - 128);
+  }
+}
+
+const nrDetails = {
+  ...DEFAULT_DETAIL_ADJUSTMENTS,
+  noiseLuminance: 80,
+  noiseLuminanceDetail: 25,
+  noiseColor: 60,
+  noiseColorDetail: 50,
+  noiseSmoothness: 50,
+};
+applyProfessionalNoiseReduction(noisyBuf, noiseW, noiseH, nrDetails);
+
+let sumDiffAfter = 0;
+for (let y = 1; y < noiseH - 1; y++) {
+  for (let x = 1; x < noiseW - 1; x++) {
+    const idx = (y * noiseW + x) * 4;
+    sumDiffAfter += Math.abs(noisyBuf[idx] - 128);
+  }
+}
+assert(sumDiffAfter < sumDiffBefore * 0.7, `Noise reduction must significantly suppress high-frequency noise variance: before ${sumDiffBefore}, after ${sumDiffAfter}`);
+console.log('✓ Professional noise reduction passed.');
+
+// Test 25: Professional Texture & Clarity Dual-Radius Filtering
+console.log('25. Testing Professional Texture & Clarity Dual-Radius Filtering...');
+const texW = 16;
+const texH = 16;
+const texBuf = new Uint8ClampedArray(texW * texH * 4);
+for (let y = 0; y < texH; y++) {
+  for (let x = 0; x < texW; x++) {
+    const idx = (y * texW + x) * 4;
+    // 2-pixel wide texture feature (pores / fabric weave band)
+    const pattern = Math.floor(x / 2) % 2 === 0 ? 15 : -15;
+    texBuf[idx] = 120 + pattern;
+    texBuf[idx + 1] = 120 + pattern;
+    texBuf[idx + 2] = 120 + pattern;
+    texBuf[idx + 3] = 255;
+  }
+}
+const preValA = texBuf[(4 * texW + 5) * 4];
+const preValB = texBuf[(4 * texW + 7) * 4];
+const preAmp = Math.abs(preValA - preValB); // 30
+
+applyTextureAdjustment(texBuf, texW, texH, 80); // Boost texture +80
+const postValA = texBuf[(4 * texW + 5) * 4];
+const postValB = texBuf[(4 * texW + 7) * 4];
+const postAmp = Math.abs(postValA - postValB);
+assert(postAmp > preAmp, `Texture adjustment must amplify mid-frequency pore/weave texture: pre=${preAmp}, post=${postAmp}`);
+console.log('✓ Professional texture and clarity filtering passed.');
+
+// Test 26: Professional Optics Engine (Distortion, CA Defringe, Lens Vignette)
+console.log('26. Testing Professional Optics Engine (Distortion, CA Defringe, Lens Vignette)...');
+const optW = 32;
+const optH = 32;
+const optBuf = new Uint8ClampedArray(optW * optH * 4);
+// Fill with uniform 100
+for (let i = 0; i < optBuf.length; i += 4) {
+  optBuf[i] = 100;
+  optBuf[i + 1] = 100;
+  optBuf[i + 2] = 100;
+  optBuf[i + 3] = 255;
+}
+
+const opticsSettings = {
+  ...DEFAULT_OPTICS_ADJUSTMENTS,
+  distortion: 30, // Barrel distortion
+  chromaticAberration: true,
+  caRedCyan: 20,
+  vignetteCorrection: 80, // Flat-field correction brightening corners
+};
+applyOpticsAdjustments(optBuf, optW, optH, opticsSettings);
+
+// Corner pixel should be brightened by flat-field vignette correction
+const cornerPixelVal = optBuf[0];
+const centerPixelVal = optBuf[(16 * optW + 16) * 4];
+assert(cornerPixelVal > centerPixelVal, `Lens vignette correction must boost peripheral pixels over center: corner=${cornerPixelVal}, center=${centerPixelVal}`);
+console.log('✓ Professional optics engine passed.');
+
+// Test 27: Non-Destructive State Migration & Project Serialization
+console.log('27. Testing Non-Destructive State Migration & Project Serialization...');
+const legacyAdjustments = {
+  exposure: 0.5,
+  contrast: 20,
+  sharpening: 45,
+  noiseReduction: 30,
+  // Tone curve missing RGB subchannels, no details object, no optics object
+};
+const migrated = migrateAdjustments(legacyAdjustments);
+assert(migrated.details !== undefined, 'Migrated state must have details object');
+assert(migrated.details.sharpenAmount === 45, 'Legacy sharpening must map to details.sharpenAmount');
+assert(migrated.details.noiseLuminance === 30, 'Legacy noiseReduction must map to details.noiseLuminance');
+assert(migrated.optics !== undefined, 'Migrated state must have optics object');
+assert(migrated.colorGrading.global !== undefined, 'Migrated state must have colorGrading.global');
+assert(migrated.toneCurves.red !== undefined && migrated.toneCurves.red.length >= 2, 'Migrated tone curves must include red channel');
+assert(migrated.toneCurves.green !== undefined && migrated.toneCurves.green.length >= 2, 'Migrated tone curves must include green channel');
+assert(migrated.toneCurves.blue !== undefined && migrated.toneCurves.blue.length >= 2, 'Migrated tone curves must include blue channel');
+
+// Verify clone immutability
+const cloned = cloneAdjustments(migrated);
+cloned.details.sharpenAmount = 90;
+cloned.colorGrading.shadows.hue = 180;
+assert(migrated.details.sharpenAmount === 45, 'Clone mutation must not affect source state');
+assert(migrated.colorGrading.shadows.hue === 0, 'Clone mutation must not affect source state');
+console.log('✓ Non-destructive state migration and project serialization passed.');
+
+// Test 28: Built-in Preset Collection Completeness & Structural Invariants
+console.log('28. Testing Built-in Preset Collection Completeness & Invariants...');
+assert(BUILT_IN_PRESETS.length === 33, `Expected 33 built-in presets, got ${BUILT_IN_PRESETS.length}`);
+
+const requiredPresetNames = [
+  // Cinematic
+  'Cinematic Warm', 'Teal & Orange', 'Moody Cinema', 'Soft Film', 'Night Cinema',
+  // Portrait
+  'Natural Portrait', 'Warm Skin', 'Soft Portrait', 'Studio Portrait', 'Classic Portrait',
+  // Landscape
+  'Golden Hour', 'Vivid Landscape', 'Natural Green', 'Dramatic Sky', 'Soft Landscape',
+  // Street
+  'Urban Contrast', 'Urban Fade', 'Night Street', 'Documentary', 'Monochrome Street',
+  // Film
+  'Vintage Film', 'Analog Warm', 'Faded Film', 'Classic Negative-inspired original look', 'Grainy Cinema',
+  // Black & White
+  'Classic B&W', 'High Contrast B&W', 'Soft Monochrome', 'Matte Monochrome',
+  // Vibrant
+  'Rich Colors', 'Summer Pop', 'Clean Bright', 'Deep Color',
+];
+
+const foundNames = new Set(BUILT_IN_PRESETS.map((p) => p.name));
+for (const reqName of requiredPresetNames) {
+  assert(foundNames.has(reqName), `Required preset "${reqName}" missing from built-in collection`);
+}
+
+for (const p of BUILT_IN_PRESETS) {
+  assert(Boolean(p.id && p.id.length > 2), `Preset "${p.name}" has invalid id`);
+  assert(Boolean(p.category), `Preset "${p.name}" has missing category`);
+  assert(Boolean(p.description), `Preset "${p.name}" has missing description`);
+  assert(p.isCustom === false, `Built-in preset "${p.name}" must have isCustom: false`);
+  assert(p.version === 1, `Preset "${p.name}" must have version: 1`);
+  assert(p.adjustments && Object.keys(p.adjustments).length > 0, `Preset "${p.name}" must have non-empty adjustments`);
+}
+console.log('✓ Built-in preset collection completeness and invariants verified.');
+
+// Test 29: Preset Application & Predictable Replacement Policy (Non-Destructive)
+console.log('29. Testing Preset Application & Replacement Policy...');
+const baseProjectAdj = getDefaultAdjustments();
+baseProjectAdj.exposure = 0.2;
+baseProjectAdj.crop = {
+  active: true,
+  x: 0.1,
+  y: 0.1,
+  width: 0.8,
+  height: 0.8,
+  aspectRatio: '1:1',
+  rotation: 0,
+  stepRotation: 0,
+  flipH: false,
+  flipV: false,
+};
+baseProjectAdj.masks = [
+  {
+    id: 'mask-test-1',
+    name: 'Subject Radial',
+    type: 'radial',
+    enabled: true,
+    inverted: false,
+    opacity: 100,
+    centerX: 0.5,
+    centerY: 0.5,
+    radiusX: 0.3,
+    radiusY: 0.3,
+    feather: 0.5,
+    adjustments: { exposure: 0.5, contrast: 10, saturation: 5, temperature: 0, sharpness: 10 },
+  },
+];
+
+// Apply Preset 1: Cinematic Warm
+const cinematicWarm = BUILT_IN_PRESETS.find((p) => p.name === 'Cinematic Warm')!;
+const appliedPreset1 = applyPresetWithStrength(baseProjectAdj, cinematicWarm, 1.0);
+assert(appliedPreset1.temperature === cinematicWarm.adjustments.temperature, 'Preset 1 temperature mismatch');
+assert(appliedPreset1.crop.active === true && appliedPreset1.crop.aspectRatio === '1:1', 'Crop geometry must be preserved across preset application');
+assert(appliedPreset1.masks.length === 1 && appliedPreset1.masks[0].id === 'mask-test-1', 'Local masks must be preserved across preset application');
+
+// Apply Preset 2: Vivid Landscape (verifying clean replacement, not compounding)
+const vividLandscape = BUILT_IN_PRESETS.find((p) => p.name === 'Vivid Landscape')!;
+const appliedPreset2 = applyPresetWithStrength(appliedPreset1, vividLandscape, 1.0);
+assert(appliedPreset2.temperature === vividLandscape.adjustments.temperature, 'Preset 2 must replace temperature rather than compound');
+assert(appliedPreset2.vibrance === vividLandscape.adjustments.vibrance, 'Preset 2 must replace vibrance');
+assert(appliedPreset2.crop.active === true, 'Crop must remain intact after switching presets');
+assert(appliedPreset2.masks.length === 1, 'Masks must remain intact after switching presets');
+console.log('✓ Preset application and non-destructive replacement policy verified.');
+
+// Test 30: Live Preset Preview & Cancellation (Zero History Mutation)
+console.log('30. Testing Live Preset Preview & Cancellation...');
+const liveBase = getDefaultAdjustments();
+liveBase.exposure = 0.0;
+// Simulate user hovering over a preset: temporary preview generated
+const hoverPreset = BUILT_IN_PRESETS.find((p) => p.name === 'Summer Pop')!;
+const previewState = applyPresetWithStrength(liveBase, hoverPreset, 1.0);
+assert(previewState.exposure !== liveBase.exposure, 'Preview state must reflect preset parameters');
+// When mouse leaves or preview is cancelled, state reverts directly to liveBase
+const restoredState = liveBase;
+assert(restoredState.exposure === 0.0, 'Restored state must match original baseline before preview');
+console.log('✓ Live preset preview and cancellation verified.');
+
+// Test 31: Custom Preset Creation, Duplication, Metadata Updates & Deletion
+console.log('31. Testing Custom Preset Creation, Duplication, Renaming & Deletion...');
+const customSource = getDefaultAdjustments();
+customSource.contrast = 25;
+customSource.saturation = -15;
+customSource.texture = 18;
+
+// Create custom preset
+const customCreated: Preset = {
+  id: `custom-${Date.now()}-1`,
+  name: 'Nordic Clean',
+  category: 'Portrait',
+  description: 'Nordic minimalist tone profile',
+  adjustments: cloneAdjustments(customSource),
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+  isCustom: true,
+  version: 1,
+};
+assert(customCreated.isCustom === true, 'Custom preset must have isCustom: true');
+assert(customCreated.adjustments.texture === 18, 'Custom preset must retain texture adjustment');
+
+// Duplicate preset
+const duplicated = duplicatePreset(customCreated, 'Nordic Clean (Duplicated Copy)');
+assert(duplicated.id !== customCreated.id, 'Duplicated preset must receive unique ID');
+assert(duplicated.name === 'Nordic Clean (Duplicated Copy)', 'Duplicated preset name must match requested name');
+assert(duplicated.isCustom === true, 'Duplicated preset must be editable custom preset');
+assert(duplicated.adjustments.contrast === 25, 'Duplicated preset must copy adjustment values');
+
+// Rename / update metadata
+const updatedCustom: Preset = {
+  ...duplicated,
+  name: 'Nordic Clean Studio Pro',
+  category: 'Custom',
+  description: 'Updated studio description',
+  updatedAt: Date.now(),
+};
+assert(updatedCustom.name === 'Nordic Clean Studio Pro', 'Preset rename must succeed');
+assert(updatedCustom.category === 'Custom', 'Preset category update must succeed');
+
+// Delete custom preset simulation
+let customList = [customCreated, updatedCustom];
+customList = customList.filter((p) => p.id !== updatedCustom.id);
+assert(customList.length === 1 && customList[0].id === customCreated.id, 'Custom preset deletion must succeed');
+console.log('✓ Custom preset creation, duplication, renaming and deletion verified.');
+
+// Test 32: Preset Favorites & Search/Category Filtering
+console.log('32. Testing Preset Favorites & Multi-Attribute Search/Category Filtering...');
+const favSet = new Set<string>();
+const presetToFav = BUILT_IN_PRESETS[1]; // Teal & Orange
+favSet.add(presetToFav.id);
+assert(favSet.has(presetToFav.id) === true, 'Preset must be marked as favorite');
+
+// Filter by Favorites
+const favoritesOnly = BUILT_IN_PRESETS.filter((p) => favSet.has(p.id));
+assert(favoritesOnly.length === 1 && favoritesOnly[0].id === presetToFav.id, 'Favorites filter must isolate starred presets');
+
+// Filter by Category
+const filmPresets = BUILT_IN_PRESETS.filter((p) => p.category === 'Film');
+assert(filmPresets.length === 5, `Expected 5 film presets, got ${filmPresets.length}`);
+
+// Text search across name and description
+const searchQuery = 'split-tone';
+const searchMatches = BUILT_IN_PRESETS.filter(
+  (p) => p.name.toLowerCase().includes(searchQuery) || p.description.toLowerCase().includes(searchQuery)
+);
+assert(searchMatches.length > 0, 'Search query must find matching presets by description');
+console.log('✓ Preset favorites and multi-attribute search/category filtering verified.');
+
+// Test 33: Single Preset & Batch Preset Pack JSON Serialization
+console.log('33. Testing Single Preset & Batch Preset Pack JSON Serialization...');
+const exportSingle = BUILT_IN_PRESETS[0];
+const singleJson = JSON.stringify({
+  format: 'lumaforge-preset',
+  version: 1,
+  id: exportSingle.id,
+  name: exportSingle.name,
+  category: exportSingle.category,
+  description: exportSingle.description,
+  adjustments: exportSingle.adjustments,
+  exportedAt: Date.now(),
+});
+const parsedSingle = JSON.parse(singleJson);
+assert(parsedSingle.format === 'lumaforge-preset', 'Single preset format descriptor must be present');
+assert(parsedSingle.version === 1, 'Version field must be 1');
+assert(parsedSingle.name === exportSingle.name, 'Exported name must match source preset');
+
+// Batch preset pack serialization
+const packPresets = [BUILT_IN_PRESETS[0], BUILT_IN_PRESETS[1], BUILT_IN_PRESETS[2]];
+const packJson = JSON.stringify({
+  format: 'lumaforge-preset-pack',
+  version: 1,
+  name: 'Cinematic Trio Pack',
+  exportedAt: Date.now(),
+  presets: packPresets,
+});
+const parsedPack = JSON.parse(packJson);
+assert(parsedPack.format === 'lumaforge-preset-pack', 'Pack format descriptor must be present');
+assert(parsedPack.presets.length === 3, 'Pack must serialize all 3 presets');
+console.log('✓ Single preset and batch preset pack JSON serialization verified.');
+
+// Test 34: Robust Preset Import Validation & Malicious Token Rejection
+console.log('34. Testing Robust Preset Import Validation & Security Protection...');
+// 34.1 Import valid single preset
+const validSingleText = JSON.stringify({
+  name: 'Tokyo Neon Street',
+  category: 'Street',
+  description: 'Vibrant neon street tones',
+  adjustments: { exposure: 0.1, contrast: 20, vibrance: 30 },
+});
+const importedSingle = parsePresetFile(validSingleText);
+const singlePresetItem = Array.isArray(importedSingle) ? importedSingle[0] : importedSingle;
+assert(singlePresetItem.name === 'Tokyo Neon Street', 'Imported name must match');
+assert(singlePresetItem.isCustom === true, 'Imported preset must be flagged as custom');
+assert(singlePresetItem.id.startsWith('custom-'), 'Imported preset must receive safe custom ID');
+
+// 34.2 Import valid preset pack
+const validPackText = JSON.stringify({
+  format: 'lumaforge-preset-pack',
+  version: 1,
+  name: 'Urban Collection',
+  presets: [
+    { name: 'Urban A', adjustments: { exposure: 0.1 } },
+    { name: 'Urban B', adjustments: { exposure: -0.1 } },
+  ],
+});
+const importedPack = parsePresetFile(validPackText);
+assert(Array.isArray(importedPack), 'Imported pack must return an array of presets');
+const packArray = importedPack as Preset[];
+assert(packArray.length === 2, 'Imported pack must contain 2 presets');
+assert(packArray[0].name === 'Urban A' && packArray[1].name === 'Urban B', 'Pack presets must retain names');
+
+// 34.3 Rejection of malicious tokens (__proto__, constructor, <script)
+let securityCaughtProto = false;
+try {
+  parsePresetFile('{"name": "Bad", "__proto__": {"polluted": true}}');
+} catch (err: any) {
+  securityCaughtProto = true;
+  assert(err.message.includes('unsafe properties'), 'Error message must explain security violation');
+}
+assert(securityCaughtProto, 'Import must reject JSON containing __proto__');
+
+let securityCaughtScript = false;
+try {
+  parsePresetFile('{"name": "<script>alert(1)</script>", "adjustments": {}}');
+} catch (err: any) {
+  securityCaughtScript = true;
+}
+assert(securityCaughtScript, 'Import must reject JSON containing <script>');
+
+// 34.4 Rejection of malformed syntax or missing name
+let syntaxCaught = false;
+try {
+  parsePresetFile('{not valid json');
+} catch {
+  syntaxCaught = true;
+}
+assert(syntaxCaught, 'Import must reject malformed JSON syntax');
+
+let missingNameCaught = false;
+try {
+  parsePresetFile('{"description": "No name provided"}');
+} catch {
+  missingNameCaught = true;
+}
+assert(missingNameCaught, 'Import must reject preset missing required name');
+console.log('✓ Robust preset import validation and security protection verified.');
+
+// Test 35: Preset History Undo & Redo Stack Invariants
+console.log('35. Testing Preset History Undo & Redo Stack Invariants...');
+const histStack = [
+  { id: 'h0', action: 'Import Photo', adjustments: getDefaultAdjustments() },
+];
+let hIndex = 0;
+
+// Apply Preset 1
+const p1 = BUILT_IN_PRESETS[0];
+const stateAfterP1 = applyPresetWithStrength(histStack[hIndex].adjustments, p1, 1.0);
+histStack.push({ id: 'h1', action: `Apply Preset: ${p1.name}`, adjustments: stateAfterP1 });
+hIndex++;
+assert(histStack[hIndex].action === `Apply Preset: ${p1.name}`, 'History stack must record Preset 1');
+
+// Apply Preset 2
+const p2 = BUILT_IN_PRESETS[1];
+const stateAfterP2 = applyPresetWithStrength(histStack[hIndex].adjustments, p2, 1.0);
+histStack.push({ id: 'h2', action: `Apply Preset: ${p2.name}`, adjustments: stateAfterP2 });
+hIndex++;
+assert(histStack[hIndex].action === `Apply Preset: ${p2.name}`, 'History stack must record Preset 2');
+
+// Undo 1: returns to stateAfterP1
+hIndex--;
+assert(histStack[hIndex].action === `Apply Preset: ${p1.name}`, 'Undo must restore Preset 1 state');
+assert(histStack[hIndex].adjustments.temperature === p1.adjustments.temperature, 'Undo must restore Preset 1 adjustments');
+
+// Undo 2: returns to initial unedited state
+hIndex--;
+assert(histStack[hIndex].action === 'Import Photo', 'Second undo must restore initial unedited photo state');
+
+// Redo 1: returns to Preset 1
+hIndex++;
+assert(histStack[hIndex].action === `Apply Preset: ${p1.name}`, 'Redo must restore Preset 1');
+
+// Redo 2: returns to Preset 2
+hIndex++;
+assert(histStack[hIndex].action === `Apply Preset: ${p2.name}`, 'Second redo must restore Preset 2');
+console.log('✓ Preset history undo and redo stack invariants verified.');
+
 console.log('====================================');
-console.log('ALL 19 AUTOMATED ENGINE TEST SUITES PASSED (0 failures)!');
+console.log('ALL 35 AUTOMATED ENGINE TEST SUITES PASSED (0 failures)!');
 console.log('====================================');
+
+

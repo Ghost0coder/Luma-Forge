@@ -12,10 +12,12 @@ import {
   SelectionState,
   RetouchState,
   BackgroundRemovalState,
+  PresetCategory,
 } from './types/editor';
 import { getDefaultAdjustments, cloneAdjustments } from './engine/defaultAdjustments';
 import { BUILT_IN_PRESETS } from './presets/builtInPresets';
 import { applyPresetWithStrength } from './presets/presetUtils';
+import { clearPresetThumbnailCache } from './engine/presetThumbnailEngine';
 import { computeHistogram } from './engine/histogram';
 import { analyzePhoto, checkAIStatus, removeObjectOrWatermark } from './services/aiService';
 import { segmentSubject } from './engine/segmentation/aiSegmentation';
@@ -105,6 +107,10 @@ export default function App() {
   const [customPresets, setCustomPresets] = useState<Preset[]>([]);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [presetStrength, setPresetStrength] = useState<number>(1.0);
+  const [presetPreviewAdjustments, setPresetPreviewAdjustments] = useState<Adjustments | null>(null);
+
+  // Compute active displayed adjustments (live preview overrides current saved adjustments non-destructively)
+  const displayAdjustments = presetPreviewAdjustments || adjustments;
 
   // Real-time Histogram
   const [histogramData, setHistogramData] = useState<HistogramData | null>(null);
@@ -312,6 +318,8 @@ export default function App() {
       const defaultAdj = getDefaultAdjustments();
       setAdjustments(defaultAdj);
       setActivePresetId(null);
+      setPresetPreviewAdjustments(null);
+      clearPresetThumbnailCache();
       setAiAnalysis(null);
 
       // Reset workspace masks to match new photo dimensions
@@ -379,6 +387,8 @@ export default function App() {
         const defaultAdj = getDefaultAdjustments();
         setAdjustments(defaultAdj);
         setActivePresetId(null);
+        setPresetPreviewAdjustments(null);
+        clearPresetThumbnailCache();
         setAiAnalysis(null);
 
         // Reset workspace masks
@@ -593,6 +603,8 @@ export default function App() {
       setSourceImage(img);
       setCurrentFilename(proj.name);
       setCurrentProjectId(proj.id);
+      clearPresetThumbnailCache();
+      setPresetPreviewAdjustments(null);
       setAdjustments(cloneAdjustments(proj.adjustments));
       setHistory(proj.history.length > 0 ? proj.history : [
         {
@@ -641,10 +653,27 @@ export default function App() {
   };
 
   // Apply preset with slider strength
-  const handleApplyPreset = (preset: Preset) => {
+  const handleApplyPreset = (preset: Preset, strength = presetStrength) => {
+    setPresetPreviewAdjustments(null);
     setActivePresetId(preset.id);
-    const updated = applyPresetWithStrength(adjustments, preset, presetStrength);
+    const updated = applyPresetWithStrength(adjustments, preset, strength);
     updateAdjustments(updated, `Apply Preset: ${preset.name}`);
+  };
+
+  const handlePreviewPreset = (preset: Preset | null) => {
+    if (!preset) {
+      setPresetPreviewAdjustments(null);
+    } else {
+      setPresetPreviewAdjustments(applyPresetWithStrength(adjustments, preset, presetStrength));
+    }
+  };
+
+  const handleResetPreset = () => {
+    setPresetPreviewAdjustments(null);
+    setActivePresetId(null);
+    setPresetStrength(1.0);
+    const defaultAdj = getDefaultAdjustments();
+    updateAdjustments(defaultAdj, 'Reset Adjustments');
   };
 
   const handlePresetStrengthChange = (strength: number) => {
@@ -659,23 +688,33 @@ export default function App() {
   };
 
   // Save current adjustments as a custom preset
-  const handleSaveCustomPreset = async (name: string, category: any) => {
+  const handleSaveCustomPreset = async (name: string, description: string, category: PresetCategory = 'Custom') => {
     const newPreset: Preset = {
       id: `custom-preset-${Date.now()}`,
       name,
       category,
-      description: 'Custom user defined photographic style profile',
+      description: description || 'Custom user defined photographic style profile',
       adjustments: cloneAdjustments(adjustments),
       createdAt: Date.now(),
+      updatedAt: Date.now(),
       isCustom: true,
+      version: 1,
     };
     await saveCustomPreset(newPreset);
     setCustomPresets((prev) => [newPreset, ...prev]);
   };
 
-  const handleImportCustomPreset = async (preset: Preset) => {
-    await saveCustomPreset(preset);
-    setCustomPresets((prev) => [preset, ...prev]);
+  const handleUpdateCustomPreset = async (updated: Preset) => {
+    await saveCustomPreset(updated);
+    setCustomPresets((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+  };
+
+  const handleImportCustomPreset = async (presetOrPack: Preset | Preset[]) => {
+    const list = Array.isArray(presetOrPack) ? presetOrPack : [presetOrPack];
+    for (const p of list) {
+      await saveCustomPreset(p);
+    }
+    setCustomPresets((prev) => [...list, ...prev]);
   };
 
   const handleDeleteCustomPreset = async (presetId: string) => {
@@ -1260,13 +1299,17 @@ export default function App() {
           presetStrength={presetStrength}
           onApplyPreset={handleApplyPreset}
           onPresetStrengthChange={handlePresetStrengthChange}
+          onPreviewPreset={handlePreviewPreset}
+          onResetPreset={handleResetPreset}
           onSaveCustomPreset={handleSaveCustomPreset}
+          onUpdateCustomPreset={handleUpdateCustomPreset}
           onImportCustomPreset={handleImportCustomPreset}
           onDeleteCustomPreset={handleDeleteCustomPreset}
           history={history}
           historyIndex={historyIndex}
           onJumpToHistory={handleJumpToHistory}
           sourceImage={sourceImage}
+          currentAdjustments={displayAdjustments}
           snapshots={snapshots}
           onSaveSnapshot={handleSaveSnapshot}
           onRestoreSnapshot={handleRestoreSnapshot}
@@ -1282,7 +1325,7 @@ export default function App() {
         {/* CENTER VIEWPORT: Canvas with Zoom, Pan, Split, Side-by-Side, Crop Overlay, and Workspace Overlays */}
         <CanvasViewport
           sourceImage={sourceImage}
-          adjustments={adjustments}
+          adjustments={displayAdjustments}
           onChangeAdjustments={updateAdjustments}
           comparisonMode={comparisonMode}
           isHoldingCompare={isHoldingCompare}
@@ -1306,7 +1349,7 @@ export default function App() {
         {/* RIGHT SIDEBAR: Switch based on Workspace Mode */}
         {workspaceMode === 'develop' && (
           <RightSidebar
-            adjustments={adjustments}
+            adjustments={displayAdjustments}
             onChangeAdjustments={updateAdjustments}
             histogramData={histogramData}
             onRunAIEnhance={handleRunAIEnhance}

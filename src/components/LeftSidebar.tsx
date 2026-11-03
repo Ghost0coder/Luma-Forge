@@ -13,10 +13,11 @@ import {
   Clock,
   Check,
 } from 'lucide-react';
-import { Preset, HistoryEntry, PhotoProject, Snapshot } from '../types/editor';
+import { Preset, PresetCategory, HistoryEntry, PhotoProject, Snapshot, Adjustments } from '../types/editor';
 import { SAMPLE_PHOTOS, SamplePhoto } from '../data/samplePhotos';
 import { exportPresetToFile, parsePresetFile } from '../presets/presetUtils';
 import { Compass, Camera } from 'lucide-react';
+import { PresetsPanel } from './PresetsPanel';
 
 interface LeftSidebarProps {
   activeTab: 'library' | 'presets' | 'history';
@@ -34,13 +35,17 @@ interface LeftSidebarProps {
   presetStrength: number;
   onApplyPreset: (preset: Preset, strength?: number) => void;
   onPresetStrengthChange: (strength: number) => void;
-  onSaveCustomPreset: (name: string, description: string) => void;
-  onImportCustomPreset: (preset: Preset) => void;
+  onPreviewPreset?: (preset: Preset | null) => void;
+  onResetPreset?: () => void;
+  onSaveCustomPreset: (name: string, description: string, category: PresetCategory) => void;
+  onUpdateCustomPreset?: (updated: Preset) => void;
+  onImportCustomPreset: (preset: Preset | Preset[]) => void;
   onDeleteCustomPreset: (id: string) => void;
   history: HistoryEntry[];
   historyIndex: number;
   onJumpToHistory: (index: number) => void;
   sourceImage?: HTMLImageElement | null;
+  currentAdjustments: Adjustments;
   snapshots?: Snapshot[];
   onSaveSnapshot?: (name: string) => void;
   onRestoreSnapshot?: (snapshot: Snapshot) => void;
@@ -66,13 +71,17 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
   presetStrength,
   onApplyPreset,
   onPresetStrengthChange,
+  onPreviewPreset,
+  onResetPreset,
   onSaveCustomPreset,
+  onUpdateCustomPreset,
   onImportCustomPreset,
   onDeleteCustomPreset,
   history,
   historyIndex,
   onJumpToHistory,
   sourceImage,
+  currentAdjustments,
   snapshots = [],
   onSaveSnapshot,
   onRestoreSnapshot,
@@ -81,45 +90,6 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
   onSetZoom,
   onFit,
 }) => {
-  const [presetCategory, setPresetCategory] = useState<string>('All');
-  const [isSavingPreset, setIsSavingPreset] = useState(false);
-  const [newPresetName, setNewPresetName] = useState('');
-  const [newPresetDesc, setNewPresetDesc] = useState('');
-
-  const allPresets = [...builtInPresets, ...customPresets];
-  const filteredPresets =
-    presetCategory === 'All'
-      ? allPresets
-      : presetCategory === 'Custom'
-      ? customPresets
-      : allPresets.filter((p) => p.category === presetCategory);
-
-  const handleSavePresetSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPresetName.trim()) return;
-    onSaveCustomPreset(newPresetName.trim(), newPresetDesc.trim());
-    setNewPresetName('');
-    setNewPresetDesc('');
-    setIsSavingPreset(false);
-  };
-
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = event.target?.result as string;
-        const preset = parsePresetFile(text);
-        onImportCustomPreset(preset);
-      } catch (err: any) {
-        alert('Invalid preset JSON: ' + err.message);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
-
   if (!isOpen) {
     return (
       <div className="w-10 bg-[#0e1117] border-r border-[#1b202c] flex flex-col items-center py-3 gap-4 shrink-0 z-20">
@@ -390,160 +360,22 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
 
         {/* 2. PRESETS TAB */}
         {activeTab === 'presets' && (
-          <div className="space-y-3">
-            {/* Category Filter Pills */}
-            <div className="flex flex-wrap gap-1">
-              {['All', 'Cinematic', 'Portrait', 'Landscape', 'Monochrome', 'Vintage', 'Custom'].map(
-                (cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setPresetCategory(cat)}
-                    className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
-                      presetCategory === cat
-                        ? 'bg-violet-600 text-white font-medium'
-                        : 'bg-[#151923] text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                )
-              )}
-            </div>
-
-            {/* Active Preset Strength Slider */}
-            {activePresetId && (
-              <div className="p-2.5 rounded-lg bg-[#141822] border border-violet-900/50 space-y-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-violet-300 font-medium">Preset Strength</span>
-                  <span className="font-mono text-slate-400 tabular-nums">
-                    {Math.round(presetStrength * 100)}%
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="2"
-                  step="0.05"
-                  value={presetStrength}
-                  onChange={(e) => onPresetStrengthChange(parseFloat(e.target.value))}
-                  className="w-full accent-violet-500"
-                />
-              </div>
-            )}
-
-            {/* Action Buttons: Save Custom & Import JSON */}
-            <div className="flex items-center gap-1.5 pt-1">
-              <button
-                onClick={() => setIsSavingPreset(!isSavingPreset)}
-                className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-medium text-slate-200 bg-[#161b26] hover:bg-[#202738] border border-[#2b3348] rounded-md transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5 text-violet-400" />
-                <span>Save Preset</span>
-              </button>
-
-              <label className="flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-300 bg-[#161b26] hover:bg-[#202738] border border-[#2b3348] rounded-md transition-colors cursor-pointer">
-                <Upload className="w-3.5 h-3.5 text-slate-400" />
-                <span>Import</span>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleImportFile}
-                  className="hidden"
-                />
-              </label>
-            </div>
-
-            {/* Save Custom Preset Form */}
-            {isSavingPreset && (
-              <form onSubmit={handleSavePresetSubmit} className="p-3 bg-[#151924] border border-[#2b3348] rounded-lg space-y-2 text-xs">
-                <div className="font-medium text-slate-200">Save Current Look</div>
-                <input
-                  type="text"
-                  placeholder="Preset name..."
-                  value={newPresetName}
-                  onChange={(e) => setNewPresetName(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-[#0f121a] border border-[#232938] rounded text-slate-200 text-xs focus:outline-none focus:border-violet-500"
-                  required
-                />
-                <input
-                  type="text"
-                  placeholder="Description (optional)"
-                  value={newPresetDesc}
-                  onChange={(e) => setNewPresetDesc(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-[#0f121a] border border-[#232938] rounded text-slate-200 text-xs focus:outline-none focus:border-violet-500"
-                />
-                <div className="flex justify-end gap-1.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setIsSavingPreset(false)}
-                    className="px-2.5 py-1 text-slate-400 hover:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-3 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded font-medium"
-                  >
-                    Save
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* Presets List */}
-            <div className="space-y-1.5 pt-1">
-              {filteredPresets.map((preset) => {
-                const isActive = preset.id === activePresetId;
-                return (
-                  <div
-                    key={preset.id}
-                    onClick={() => onApplyPreset(preset)}
-                    className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer group ${
-                      isActive
-                        ? 'bg-violet-950/40 border-violet-600 text-white shadow-sm'
-                        : 'bg-[#141822] hover:bg-[#1a202d] border-[#202738] text-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-semibold group-hover:text-violet-300 transition-colors flex items-center gap-1.5">
-                        {preset.name}
-                        {isActive && <Check className="w-3.5 h-3.5 text-violet-400" />}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            exportPresetToFile(preset);
-                          }}
-                          title="Export preset JSON"
-                          className="p-1 text-slate-500 hover:text-slate-300 transition-colors"
-                        >
-                          <Download className="w-3 h-3" />
-                        </button>
-                        {preset.isCustom && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (confirm(`Delete custom preset "${preset.name}"?`)) {
-                                onDeleteCustomPreset(preset.id);
-                              }
-                            }}
-                            title="Delete custom preset"
-                            className="p-1 text-slate-500 hover:text-red-400 transition-colors"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-1 leading-snug">
-                      {preset.description}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <PresetsPanel
+            builtInPresets={builtInPresets}
+            customPresets={customPresets}
+            activePresetId={activePresetId}
+            presetStrength={presetStrength}
+            onApplyPreset={onApplyPreset}
+            onPresetStrengthChange={onPresetStrengthChange}
+            onPreviewPreset={onPreviewPreset}
+            onResetPreset={onResetPreset}
+            onSaveCustomPreset={onSaveCustomPreset}
+            onUpdateCustomPreset={onUpdateCustomPreset}
+            onImportCustomPreset={onImportCustomPreset}
+            onDeleteCustomPreset={onDeleteCustomPreset}
+            sourceImage={sourceImage}
+            currentAdjustments={currentAdjustments}
+          />
         )}
 
         {/* 3. HISTORY TAB */}

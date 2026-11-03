@@ -9,6 +9,12 @@ import {
   prepareColorGrading,
   applyColorGrading,
 } from './colorScience';
+import {
+  applyProfessionalSharpening,
+  applyProfessionalNoiseReduction,
+  applyTextureAdjustment,
+} from './detailsEngine';
+import { applyOpticsAdjustments } from './opticsEngine';
 
 export interface RenderOptions {
   maxDimension?: number; // scale down for smooth preview
@@ -149,6 +155,11 @@ export function processPixelData(
   adjustments: Adjustments
 ): void {
   const len = data.length;
+
+  // 1. Lens Optics: Geometric distortion, lateral chromatic aberration, lens vignette
+  if (adjustments.optics) {
+    applyOpticsAdjustments(data, renderW, renderH, adjustments.optics);
+  }
 
   // Precompute tone curve LUTs & check activity
   const hasActiveCurves =
@@ -397,28 +408,48 @@ export function processPixelData(
     data[i + 2] = cb;
   }
 
-  // 15. Noise Reduction (edge-preserving spatial low-pass filter)
-  if ((adjustments.noiseReduction || 0) > 0) {
-    applyNoiseReductionInMemory(data, renderW, renderH, adjustments.noiseReduction);
+  // 15. Texture (high-frequency micro-contrast)
+  if ((adjustments.texture || 0) !== 0) {
+    applyTextureAdjustment(data, renderW, renderH, adjustments.texture);
   }
 
-  // 16. Film Grain & Grain Size
+  // 16. Professional Noise Reduction & Sharpening
+  const detailAdj = adjustments.details || {
+    sharpenAmount: adjustments.sharpening || 0,
+    sharpenRadius: 1.0,
+    sharpenDetail: 25,
+    sharpenMasking: 0,
+    noiseLuminance: adjustments.noiseReduction || 0,
+    noiseLuminanceDetail: 50,
+    noiseLuminanceContrast: 0,
+    noiseColor: 0,
+    noiseColorDetail: 50,
+    noiseSmoothness: 50,
+  };
+
+  if ((detailAdj.noiseLuminance || 0) > 0 || (detailAdj.noiseColor || 0) > 0) {
+    applyProfessionalNoiseReduction(data, renderW, renderH, detailAdj);
+  }
+
+  if ((detailAdj.sharpenAmount || 0) > 0) {
+    applyProfessionalSharpening(data, renderW, renderH, detailAdj);
+  }
+
+  // 17. Film Grain (Amount, Size, Roughness)
   if (adjustments.grain > 0) {
     const grainIntensity = adjustments.grain * 0.7;
     const grainScale = Math.max(1, Math.round(1 + ((adjustments.grainSize || 0) / 100) * 3));
+    const roughness = (adjustments.grainRoughness ?? 50) / 100;
     for (let i = 0; i < len; i += 4) {
       const px = Math.floor(((i / 4) % renderW) / grainScale);
       const py = Math.floor(Math.floor((i / 4) / renderW) / grainScale);
-      const noise = (seededRandom(px, py, 42) - 0.5) * grainIntensity;
+      const n1 = seededRandom(px, py, 42) - 0.5;
+      const n2 = (seededRandom(px * 2, py * 2, 84) - 0.5) * roughness;
+      const noise = (n1 + n2) * grainIntensity;
       data[i] = Math.max(0, Math.min(255, data[i] + noise));
       data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
       data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
     }
-  }
-
-  // 17. Sharpening (unsharp masking)
-  if (adjustments.sharpening > 0) {
-    applyFastSharpenInMemory(data, renderW, renderH, adjustments.sharpening);
   }
 
   // 18. Background Removal Compositing (if enabled in project adjustments)

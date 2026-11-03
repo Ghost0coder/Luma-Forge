@@ -300,68 +300,129 @@ export function applyHslMixer(
 
 export interface PreparedColorGrading {
   isActive: boolean;
+  strength: number; // 0 to 1
   midPoint: number;
+  blendExp: number;
   shadowSat: number;
   shadowR: number;
   shadowG: number;
   shadowB: number;
+  shadowLum: number;
   midtoneSat: number;
   midtoneR: number;
   midtoneG: number;
   midtoneB: number;
+  midtoneLum: number;
   highlightSat: number;
   highlightR: number;
   highlightG: number;
   highlightB: number;
+  highlightLum: number;
+  globalSat: number;
+  globalR: number;
+  globalG: number;
+  globalB: number;
+  globalLum: number;
 }
 
 /**
- * Precomputes Color Grading RGB vectors before entering pixel loop
+ * Precomputes Color Grading RGB vectors and tone-weighting exponents before entering pixel loop
  */
 export function prepareColorGrading(grading: ColorGrading): PreparedColorGrading {
-  const bal = grading.balance / 100;
-  const midPoint = 0.5 + bal * 0.25;
+  if (!grading) {
+    return {
+      isActive: false,
+      strength: 0,
+      midPoint: 0.5,
+      blendExp: 2.0,
+      shadowSat: 0, shadowR: 0, shadowG: 0, shadowB: 0, shadowLum: 0,
+      midtoneSat: 0, midtoneR: 0, midtoneG: 0, midtoneB: 0, midtoneLum: 0,
+      highlightSat: 0, highlightR: 0, highlightG: 0, highlightB: 0, highlightLum: 0,
+      globalSat: 0, globalR: 0, globalG: 0, globalB: 0, globalLum: 0,
+    };
+  }
 
-  const shadowSat = grading.shadows.saturation;
+  const strength = Math.max(0, Math.min(1, (grading.strength ?? 100) / 100));
+  const bal = Math.max(-100, Math.min(100, grading.balance ?? 0)) / 100;
+  const midPoint = Math.max(0.2, Math.min(0.8, 0.5 + bal * 0.25));
+
+  // Blending: 0 (tight/separated) -> 100 (wide/soft)
+  const blending = Math.max(0, Math.min(100, grading.blending ?? 50)) / 100;
+  const blendExp = 1.0 + (1 - blending) * 2.0;
+
+  const shadow = grading.shadows || { hue: 0, saturation: 0, luminance: 0 };
+  const shadowSat = Math.max(0, shadow.saturation || 0);
   let shadowR = 0, shadowG = 0, shadowB = 0;
   if (shadowSat > 0) {
-    [shadowR, shadowG, shadowB] = hslToRgb(grading.shadows.hue, 1, 0.5);
+    [shadowR, shadowG, shadowB] = hslToRgb(shadow.hue || 0, 1, 0.5);
   }
+  const shadowLum = (shadow.luminance || 0) / 100;
 
-  const midtoneSat = grading.midtones.saturation;
+  const midtone = grading.midtones || { hue: 0, saturation: 0, luminance: 0 };
+  const midtoneSat = Math.max(0, midtone.saturation || 0);
   let midtoneR = 0, midtoneG = 0, midtoneB = 0;
   if (midtoneSat > 0) {
-    [midtoneR, midtoneG, midtoneB] = hslToRgb(grading.midtones.hue, 1, 0.5);
+    [midtoneR, midtoneG, midtoneB] = hslToRgb(midtone.hue || 0, 1, 0.5);
   }
+  const midtoneLum = (midtone.luminance || 0) / 100;
 
-  const highlightSat = grading.highlights.saturation;
+  const highlight = grading.highlights || { hue: 0, saturation: 0, luminance: 0 };
+  const highlightSat = Math.max(0, highlight.saturation || 0);
   let highlightR = 0, highlightG = 0, highlightB = 0;
   if (highlightSat > 0) {
-    [highlightR, highlightG, highlightB] = hslToRgb(grading.highlights.hue, 1, 0.5);
+    [highlightR, highlightG, highlightB] = hslToRgb(highlight.hue || 0, 1, 0.5);
   }
+  const highlightLum = (highlight.luminance || 0) / 100;
 
-  const isActive = shadowSat > 0 || midtoneSat > 0 || highlightSat > 0;
+  const globalWheel = grading.global || { hue: 0, saturation: 0, luminance: 0 };
+  const globalSat = Math.max(0, globalWheel.saturation || 0);
+  let globalR = 0, globalG = 0, globalB = 0;
+  if (globalSat > 0) {
+    [globalR, globalG, globalB] = hslToRgb(globalWheel.hue || 0, 1, 0.5);
+  }
+  const globalLum = (globalWheel.luminance || 0) / 100;
+
+  const isActive =
+    strength > 0.001 &&
+    (shadowSat > 0 ||
+      shadowLum !== 0 ||
+      midtoneSat > 0 ||
+      midtoneLum !== 0 ||
+      highlightSat > 0 ||
+      highlightLum !== 0 ||
+      globalSat > 0 ||
+      globalLum !== 0);
 
   return {
     isActive,
+    strength,
     midPoint,
+    blendExp,
     shadowSat,
     shadowR,
     shadowG,
     shadowB,
+    shadowLum,
     midtoneSat,
     midtoneR,
     midtoneG,
     midtoneB,
+    midtoneLum,
     highlightSat,
     highlightR,
     highlightG,
     highlightB,
+    highlightLum,
+    globalSat,
+    globalR,
+    globalG,
+    globalB,
+    globalLum,
   };
 }
 
 /**
- * Applies 3-way Color Grading / Split Toning
+ * Applies 3-way + Global Color Grading with luminance-aware weighting and blending
  */
 export function applyColorGrading(
   r: number,
@@ -377,32 +438,82 @@ export function applyColorGrading(
     return [r, g, b];
   }
 
+  const str = prep.strength;
   const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   const midPoint = prep.midPoint;
+  const p = prep.blendExp;
 
-  const shadowWeight = Math.max(0, 1 - lum / midPoint);
-  const highlightWeight = Math.max(0, (lum - midPoint) / (1 - midPoint));
-  const midtoneWeight = Math.max(0, 1 - Math.abs(lum - midPoint) * 2);
+  // Calculate smooth luminance-aware weights for shadows, midtones, and highlights
+  const rawShadowW = Math.max(0, 1 - lum / midPoint);
+  const shadowWeight = Math.pow(rawShadowW, p);
 
-  if (prep.shadowSat > 0 && shadowWeight > 0) {
-    const amount = (prep.shadowSat / 100) * shadowWeight * 0.4;
-    r = r * (1 - amount) + prep.shadowR * amount;
-    g = g * (1 - amount) + prep.shadowG * amount;
-    b = b * (1 - amount) + prep.shadowB * amount;
+  const rawHighlightW = Math.max(0, (lum - midPoint) / (1 - midPoint));
+  const highlightWeight = Math.pow(rawHighlightW, p);
+
+  const midDist = Math.abs(lum - midPoint) * 2;
+  const rawMidtoneW = Math.max(0, 1 - midDist);
+  const midtoneWeight = Math.pow(rawMidtoneW, p);
+
+  // 1. Shadows color & luminance tinting
+  if (shadowWeight > 0.0001) {
+    if (prep.shadowSat > 0) {
+      const amount = (prep.shadowSat / 100) * shadowWeight * 0.45 * str;
+      r = r * (1 - amount) + prep.shadowR * amount;
+      g = g * (1 - amount) + prep.shadowG * amount;
+      b = b * (1 - amount) + prep.shadowB * amount;
+    }
+    if (prep.shadowLum !== 0) {
+      const lumDelta = prep.shadowLum * shadowWeight * 0.3 * str;
+      r += lumDelta;
+      g += lumDelta;
+      b += lumDelta;
+    }
   }
 
-  if (prep.midtoneSat > 0 && midtoneWeight > 0) {
-    const amount = (prep.midtoneSat / 100) * midtoneWeight * 0.3;
-    r = r * (1 - amount) + prep.midtoneR * amount;
-    g = g * (1 - amount) + prep.midtoneG * amount;
-    b = b * (1 - amount) + prep.midtoneB * amount;
+  // 2. Midtones color & luminance tinting
+  if (midtoneWeight > 0.0001) {
+    if (prep.midtoneSat > 0) {
+      const amount = (prep.midtoneSat / 100) * midtoneWeight * 0.35 * str;
+      r = r * (1 - amount) + prep.midtoneR * amount;
+      g = g * (1 - amount) + prep.midtoneG * amount;
+      b = b * (1 - amount) + prep.midtoneB * amount;
+    }
+    if (prep.midtoneLum !== 0) {
+      const lumDelta = prep.midtoneLum * midtoneWeight * 0.25 * str;
+      r += lumDelta;
+      g += lumDelta;
+      b += lumDelta;
+    }
   }
 
-  if (prep.highlightSat > 0 && highlightWeight > 0) {
-    const amount = (prep.highlightSat / 100) * highlightWeight * 0.4;
-    r = r * (1 - amount) + prep.highlightR * amount;
-    g = g * (1 - amount) + prep.highlightG * amount;
-    b = b * (1 - amount) + prep.highlightB * amount;
+  // 3. Highlights color & luminance tinting
+  if (highlightWeight > 0.0001) {
+    if (prep.highlightSat > 0) {
+      const amount = (prep.highlightSat / 100) * highlightWeight * 0.45 * str;
+      r = r * (1 - amount) + prep.highlightR * amount;
+      g = g * (1 - amount) + prep.highlightG * amount;
+      b = b * (1 - amount) + prep.highlightB * amount;
+    }
+    if (prep.highlightLum !== 0) {
+      const lumDelta = prep.highlightLum * highlightWeight * 0.3 * str;
+      r += lumDelta;
+      g += lumDelta;
+      b += lumDelta;
+    }
+  }
+
+  // 4. Global color grading wheel (uniform tint & exposure bias)
+  if (prep.globalSat > 0) {
+    const amount = (prep.globalSat / 100) * 0.35 * str;
+    r = r * (1 - amount) + prep.globalR * amount;
+    g = g * (1 - amount) + prep.globalG * amount;
+    b = b * (1 - amount) + prep.globalB * amount;
+  }
+  if (prep.globalLum !== 0) {
+    const lumDelta = prep.globalLum * 0.25 * str;
+    r += lumDelta;
+    g += lumDelta;
+    b += lumDelta;
   }
 
   return [

@@ -1,4 +1,12 @@
-import { Adjustments, HSLMixer, ToneCurves, ColorGrading, CropGeometry } from '../types/editor';
+import {
+  Adjustments,
+  HSLMixer,
+  ToneCurves,
+  ColorGrading,
+  CropGeometry,
+  DetailAdjustments,
+  OpticsAdjustments,
+} from '../types/editor';
 
 export const DEFAULT_TONE_CURVES: ToneCurves = {
   rgb: [
@@ -37,7 +45,31 @@ export const DEFAULT_COLOR_GRADING: ColorGrading = {
   shadows: { hue: 0, saturation: 0, luminance: 0 },
   midtones: { hue: 0, saturation: 0, luminance: 0 },
   highlights: { hue: 0, saturation: 0, luminance: 0 },
+  global: { hue: 0, saturation: 0, luminance: 0 },
+  blending: 50,
   balance: 0,
+  strength: 100,
+};
+
+export const DEFAULT_DETAIL_ADJUSTMENTS: DetailAdjustments = {
+  sharpenAmount: 0,
+  sharpenRadius: 1.0,
+  sharpenDetail: 25,
+  sharpenMasking: 0,
+  noiseLuminance: 0,
+  noiseLuminanceDetail: 50,
+  noiseLuminanceContrast: 0,
+  noiseColor: 0,
+  noiseColorDetail: 50,
+  noiseSmoothness: 50,
+};
+
+export const DEFAULT_OPTICS_ADJUSTMENTS: OpticsAdjustments = {
+  distortion: 0,
+  chromaticAberration: false,
+  caRedCyan: 0,
+  caBlueYellow: 0,
+  vignetteCorrection: 0,
 };
 
 export const DEFAULT_CROP: CropGeometry = {
@@ -71,6 +103,8 @@ export function getDefaultAdjustments(): Adjustments {
     colorGrading: JSON.parse(JSON.stringify(DEFAULT_COLOR_GRADING)),
     sharpening: 0,
     noiseReduction: 0,
+    details: { ...DEFAULT_DETAIL_ADJUSTMENTS },
+    texture: 0,
     clarity: 0,
     dehaze: 0,
     vignette: 0,
@@ -78,11 +112,68 @@ export function getDefaultAdjustments(): Adjustments {
     vignetteFeather: 50,
     grain: 0,
     grainSize: 25,
+    grainRoughness: 50,
+    optics: { ...DEFAULT_OPTICS_ADJUSTMENTS },
     crop: { ...DEFAULT_CROP },
     masks: [],
   };
 }
 
+/**
+ * Migration helper to ensure loaded legacy or partial adjustments
+ * always conform to the complete, typed modern Adjustments model
+ */
+export function migrateAdjustments(adj: any): Adjustments {
+  if (!adj) return getDefaultAdjustments();
+
+  const def = getDefaultAdjustments();
+  const merged: Adjustments = {
+    ...def,
+    ...adj,
+    toneCurves: {
+      rgb: adj.toneCurves?.rgb || def.toneCurves.rgb,
+      red: adj.toneCurves?.red || def.toneCurves.red,
+      green: adj.toneCurves?.green || def.toneCurves.green,
+      blue: adj.toneCurves?.blue || def.toneCurves.blue,
+    },
+    hslMixer: {
+      ...def.hslMixer,
+      ...(adj.hslMixer || {}),
+    },
+    colorGrading: {
+      ...def.colorGrading,
+      ...(adj.colorGrading || {}),
+      global: adj.colorGrading?.global || def.colorGrading.global,
+      blending: adj.colorGrading?.blending ?? def.colorGrading.blending,
+      balance: adj.colorGrading?.balance ?? def.colorGrading.balance,
+      strength: adj.colorGrading?.strength ?? def.colorGrading.strength,
+    },
+    details: {
+      ...def.details,
+      sharpenAmount: adj.details?.sharpenAmount ?? adj.sharpening ?? def.details.sharpenAmount,
+      noiseLuminance: adj.details?.noiseLuminance ?? adj.noiseReduction ?? def.details.noiseLuminance,
+      ...(adj.details || {}),
+    },
+    optics: {
+      ...def.optics,
+      ...(adj.optics || {}),
+    },
+    crop: {
+      ...def.crop,
+      ...(adj.crop || {}),
+    },
+    masks: adj.masks || [],
+  };
+
+  // Synchronize legacy top-level values
+  merged.sharpening = merged.details.sharpenAmount;
+  merged.noiseReduction = merged.details.noiseLuminance;
+  merged.texture = adj.texture ?? 0;
+  merged.grainRoughness = adj.grainRoughness ?? 50;
+
+  return merged;
+}
+
 export function cloneAdjustments(adj: Adjustments): Adjustments {
-  return JSON.parse(JSON.stringify(adj));
+  return JSON.parse(JSON.stringify(migrateAdjustments(adj)));
 }

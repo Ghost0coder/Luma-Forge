@@ -17,6 +17,7 @@ export const ToneCurveGraph: React.FC<ToneCurveGraphProps> = React.memo(({
 }) => {
   const [activeChannel, setActiveChannel] = useState<ChannelKey>('rgb');
   const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const grabOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -80,6 +81,7 @@ export const ToneCurveGraph: React.FC<ToneCurveGraphProps> = React.memo(({
     const coords = getSvgCoordinates(e);
     if (!coords) return;
 
+    setSelectedIdx(idx);
     const pt = points[idx];
     grabOffsetRef.current = {
       x: coords.x - pt.x,
@@ -103,9 +105,9 @@ export const ToneCurveGraph: React.FC<ToneCurveGraphProps> = React.memo(({
     const isFirst = targetIdx === 0;
     const isLast = targetIdx === points.length - 1;
 
-    // Strict bounds to prevent point crossing or duplicate X values
-    const minX = isFirst ? 0 : isLast ? 255 : points[targetIdx - 1].x + 1;
-    const maxX = isFirst ? 0 : isLast ? 255 : points[targetIdx + 1].x - 1;
+    // Strict bounds with black/white point horizontal adjustment support
+    const minX = isFirst ? 0 : points[targetIdx - 1].x + 1;
+    const maxX = isLast ? 255 : points[targetIdx + 1].x - 1;
 
     const rawTargetX = coords.x - grabOffsetRef.current.x;
     const rawTargetY = coords.y - grabOffsetRef.current.y;
@@ -185,10 +187,11 @@ export const ToneCurveGraph: React.FC<ToneCurveGraphProps> = React.memo(({
     const coords = getSvgCoordinates(e);
     if (!coords) return;
 
-    // Do not add point if clicked close to an existing point
+    // Do not add point if clicked close to an existing point; instead select that point
     const threshold = 16;
     for (let i = 0; i < points.length; i++) {
       if (Math.hypot(points[i].x - coords.x, points[i].y - coords.y) < threshold) {
+        setSelectedIdx(i);
         return;
       }
     }
@@ -196,33 +199,54 @@ export const ToneCurveGraph: React.FC<ToneCurveGraphProps> = React.memo(({
     if (points.length >= 8) return; // Max 8 control points per curve
 
     const newPts = [...points, { x: coords.x, y: coords.y }].sort((a, b) => a.x - b.x);
+    const addedIdx = newPts.findIndex((p) => p.x === coords.x && p.y === coords.y);
+    setSelectedIdx(addedIdx !== -1 ? addedIdx : null);
+
     onChange({
       ...curves,
       [activeChannel]: newPts,
     });
   };
 
-  const handleRemovePoint = (idx: number, e: React.SyntheticEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handleRemovePoint = useCallback((idx: number, e?: React.SyntheticEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     if (points.length <= 2) return; // Minimum 2 endpoints
 
     const newPts = points.filter((_, i) => i !== idx);
+    setSelectedIdx(null);
     onChange({
       ...curves,
       [activeChannel]: newPts,
     });
-  };
+  }, [points, activeChannel, curves, onChange]);
+
+  // Keyboard Delete / Backspace for removing selected point
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedIdx !== null && selectedIdx > 0 && selectedIdx < points.length - 1) {
+          handleRemovePoint(selectedIdx);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIdx, points.length, handleRemovePoint]);
 
   const handleChannelChange = (ch: ChannelKey) => {
     setActiveChannel(ch);
     setDraggingIdx(null);
+    setSelectedIdx(null);
     isDraggingRef.current = false;
     wasDraggingJustEndedRef.current = false;
   };
 
   const handleResetChannel = () => {
     setDraggingIdx(null);
+    setSelectedIdx(null);
     isDraggingRef.current = false;
     wasDraggingJustEndedRef.current = false;
     onChange({
@@ -234,9 +258,22 @@ export const ToneCurveGraph: React.FC<ToneCurveGraphProps> = React.memo(({
     });
   };
 
+  const handleResetAllCurves = () => {
+    setDraggingIdx(null);
+    setSelectedIdx(null);
+    isDraggingRef.current = false;
+    wasDraggingJustEndedRef.current = false;
+    onChange({
+      rgb: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+      red: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+      green: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+      blue: [{ x: 0, y: 0 }, { x: 255, y: 255 }],
+    });
+  };
+
   return (
     <div className="space-y-2 select-none">
-      {/* Channel Switcher */}
+      {/* Channel Switcher & Resets */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1 bg-[#141822] p-0.5 rounded-md border border-[#202738] text-[11px]">
           {(['rgb', 'red', 'green', 'blue'] as ChannelKey[]).map((ch) => (
@@ -255,13 +292,25 @@ export const ToneCurveGraph: React.FC<ToneCurveGraphProps> = React.memo(({
           ))}
         </div>
 
-        <button
-          type="button"
-          onClick={handleResetChannel}
-          className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
-        >
-          Reset Curve
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleResetChannel}
+            title="Reset active channel curve to linear"
+            className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+          >
+            Reset
+          </button>
+          <span className="text-slate-700 text-[10px]">|</span>
+          <button
+            type="button"
+            onClick={handleResetAllCurves}
+            title="Reset all 4 RGB curves to linear"
+            className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+          >
+            Reset All
+          </button>
+        </div>
       </div>
 
       {/* SVG Interactive Canvas */}
@@ -323,12 +372,25 @@ export const ToneCurveGraph: React.FC<ToneCurveGraphProps> = React.memo(({
                 onDoubleClick={(e) => handleRemovePoint(idx, e)}
                 onContextMenu={(e) => handleRemovePoint(idx, e)}
               />
+              {/* Selection indicator ring */}
+              {selectedIdx === idx && (
+                <circle
+                  cx={pt.x}
+                  cy={255 - pt.y}
+                  r="9"
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth="1.5"
+                  strokeDasharray="2 2"
+                  className="pointer-events-none animate-pulse"
+                />
+              )}
               {/* Visible control point dot */}
               <circle
                 cx={pt.x}
                 cy={255 - pt.y}
                 r={draggingIdx === idx ? 7 : 5}
-                fill="#ffffff"
+                fill={selectedIdx === idx ? '#38bdf8' : '#ffffff'}
                 stroke={channelColors[activeChannel].stroke}
                 strokeWidth="2"
                 className="pointer-events-none transition-transform"
@@ -338,10 +400,37 @@ export const ToneCurveGraph: React.FC<ToneCurveGraphProps> = React.memo(({
         </svg>
       </div>
 
+      {/* Selected Point Info & Actions */}
+      {selectedIdx !== null && points[selectedIdx] && (
+        <div className="flex items-center justify-between px-2 py-1 rounded bg-[#141824] border border-[#232a3d] text-[11px] text-slate-300">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-slate-400">
+              {selectedIdx === 0
+                ? 'Black Point'
+                : selectedIdx === points.length - 1
+                ? 'White Point'
+                : `Point ${selectedIdx}`}
+            </span>
+            <span className="font-mono text-cyan-300 text-[10px]">
+              In: {points[selectedIdx].x} / Out: {points[selectedIdx].y}
+            </span>
+          </div>
+          {selectedIdx > 0 && selectedIdx < points.length - 1 && (
+            <button
+              type="button"
+              onClick={() => handleRemovePoint(selectedIdx)}
+              className="text-[10px] text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+            >
+              Delete Point
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between text-[10px] text-slate-500 px-0.5">
-        <span>Shadows</span>
+        <span>Black / Shadows</span>
         <span>Midtones</span>
-        <span>Highlights</span>
+        <span>Highlights / White</span>
       </div>
     </div>
   );

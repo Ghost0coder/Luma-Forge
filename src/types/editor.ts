@@ -42,7 +42,34 @@ export interface ColorGrading {
   shadows: ColorGradingWheel;
   midtones: ColorGradingWheel;
   highlights: ColorGradingWheel;
-  balance: number; // -100 to +100
+  global?: ColorGradingWheel;
+  blending?: number; // 0 to 100 (default 50)
+  balance?: number;  // -100 to +100 (default 0)
+  strength?: number; // 0 to 100 (default 100)
+}
+
+export interface DetailAdjustments {
+  // Sharpening
+  sharpenAmount: number;   // 0 to 150
+  sharpenRadius: number;   // 0.5 to 3.0
+  sharpenDetail: number;   // 0 to 100
+  sharpenMasking: number;  // 0 to 100
+
+  // Noise Reduction
+  noiseLuminance: number;        // 0 to 100
+  noiseLuminanceDetail: number;  // 0 to 100
+  noiseLuminanceContrast: number;// 0 to 100
+  noiseColor: number;            // 0 to 100
+  noiseColorDetail: number;      // 0 to 100
+  noiseSmoothness: number;       // 0 to 100
+}
+
+export interface OpticsAdjustments {
+  distortion: number;           // -100 to +100 (pincushion to barrel)
+  chromaticAberration: boolean; // toggle CA correction
+  caRedCyan: number;            // -100 to +100
+  caBlueYellow: number;         // -100 to +100
+  vignetteCorrection: number;   // 0 to 100
 }
 
 export type MaskType = 'radial' | 'linear' | 'brush' | 'ai-subject' | 'ai-background';
@@ -133,16 +160,24 @@ export interface Adjustments {
   hslMixer: HSLMixer;
   colorGrading: ColorGrading;
 
-  // Detail & Effects
-  sharpening: number;   // 0 to 100
-  noiseReduction: number; // 0 to 100
-  clarity: number;      // -100 to +100
-  dehaze: number;       // -100 to +100
+  // Detail
+  sharpening: number;   // 0 to 150 (legacy & fast sync)
+  noiseReduction: number; // 0 to 100 (legacy & fast sync)
+  details: DetailAdjustments;
+
+  // Effects
+  texture: number;      // -100 to +100 (high-frequency micro-contrast)
+  clarity: number;      // -100 to +100 (mid-tone local contrast)
+  dehaze: number;       // -100 to +100 (atmospheric haze reduction)
   vignette: number;     // -100 to +100
   vignetteMidpoint: number; // 0 to 100
   vignetteFeather: number;  // 0 to 100
   grain: number;        // 0 to 100
   grainSize: number;    // 0 to 100
+  grainRoughness: number; // 0 to 100 (fractal roughness)
+
+  // Optics
+  optics: OpticsAdjustments;
 
   // Geometry
   crop: CropGeometry;
@@ -154,14 +189,39 @@ export interface Adjustments {
   backgroundRemoval?: BackgroundRemovalState;
 }
 
+export type PresetCategory =
+  | 'Cinematic'
+  | 'Portrait'
+  | 'Landscape'
+  | 'Street'
+  | 'Film'
+  | 'Black & White'
+  | 'Vibrant'
+  | 'Custom'
+  | 'Monochrome'
+  | 'Vintage';
+
 export interface Preset {
   id: string;
   name: string;
-  category: 'Cinematic' | 'Portrait' | 'Landscape' | 'Monochrome' | 'Vintage' | 'Custom';
+  category: PresetCategory;
   description: string;
   adjustments: Partial<Adjustments>;
+  thumbnail?: string;
   createdAt?: number;
+  updatedAt?: number;
+  isFavorite?: boolean;
   isCustom?: boolean;
+  version?: number;
+}
+
+export interface PresetPack {
+  format: 'lumaforge-preset-pack';
+  version: number;
+  name?: string;
+  description?: string;
+  exportedAt: number;
+  presets: Preset[];
 }
 
 export interface HistoryEntry {

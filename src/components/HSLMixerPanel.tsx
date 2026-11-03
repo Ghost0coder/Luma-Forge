@@ -40,6 +40,20 @@ export const HSLMixerPanel: React.FC<HSLMixerPanelProps> = React.memo(({ mixer, 
     });
   };
 
+  const handleResetAll = () => {
+    const emptyMixer: HSLMixer = {
+      red: { hue: 0, saturation: 0, luminance: 0 },
+      orange: { hue: 0, saturation: 0, luminance: 0 },
+      yellow: { hue: 0, saturation: 0, luminance: 0 },
+      green: { hue: 0, saturation: 0, luminance: 0 },
+      aqua: { hue: 0, saturation: 0, luminance: 0 },
+      blue: { hue: 0, saturation: 0, luminance: 0 },
+      purple: { hue: 0, saturation: 0, luminance: 0 },
+      magenta: { hue: 0, saturation: 0, luminance: 0 },
+    };
+    onChange(emptyMixer);
+  };
+
   return (
     <div className="space-y-3">
       {/* 8 Color Channel Buttons */}
@@ -84,12 +98,21 @@ export const HSLMixerPanel: React.FC<HSLMixerPanelProps> = React.memo(({ mixer, 
         <span className="text-xs font-semibold text-slate-300 capitalize">
           {selectedChannel} Adjustments
         </span>
-        <button
-          onClick={() => handleResetChannel(selectedChannel)}
-          className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
-        >
-          Reset {selectedChannel}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleResetChannel(selectedChannel)}
+            className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+          >
+            Reset {selectedChannel}
+          </button>
+          <span className="text-slate-700 text-[10px]">|</span>
+          <button
+            onClick={handleResetAll}
+            className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+          >
+            Reset All
+          </button>
+        </div>
       </div>
 
       {/* Sliders */}
