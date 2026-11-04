@@ -75,19 +75,19 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full text-zinc-300 select-none bg-[#0a0d14] border-l border-zinc-800/80 p-4 space-y-5 overflow-y-auto">
+    <div className="flex flex-col h-full text-slate-200 select-none bg-[#11141c] border-l border-[#222938] p-4 space-y-5 overflow-y-auto">
       {/* Header */}
-      <div>
+      <div className="pb-3 border-b border-[#222938]">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold tracking-wider uppercase text-zinc-100 flex items-center gap-2">
-            <Scissors className="w-4 h-4 text-purple-400" />
-            Background Remover
+          <h3 className="text-sm font-semibold tracking-wide text-[#f8fafc] flex items-center gap-2">
+            <Scissors className="w-4 h-4 text-sky-400" />
+            Background Studio
           </h3>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-950/60 text-purple-300 border border-purple-800/50">
-            AI Segmentation
+          <span className="text-[11px] font-mono text-slate-400">
+            Subject Isolation
           </span>
         </div>
-        <p className="text-xs text-zinc-400 mt-1">
+        <p className="text-xs text-slate-400 mt-1">
           Isolate portrait subjects and replace backgrounds with transparency, color, or blur.
         </p>
       </div>

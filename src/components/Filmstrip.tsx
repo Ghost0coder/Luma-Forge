@@ -79,17 +79,17 @@ export const Filmstrip: React.FC<FilmstripProps> = React.memo(({
 
   if (isCollapsed) {
     return (
-      <div className="h-7 w-full bg-[#0a0d13] border-t border-[#1b202c] px-4 flex items-center justify-between text-xs text-slate-400 select-none shrink-0 z-20">
+      <div className="h-7 w-full bg-[#0c0e14] border-t border-[#222938] px-4 flex items-center justify-between text-xs text-slate-400 select-none shrink-0 z-20">
         <div className="flex items-center gap-3">
           <button
             onClick={onToggleCollapse}
             title="Expand Filmstrip"
-            className="flex items-center gap-1 text-[11px] font-mono text-slate-300 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-[11px] font-mono text-slate-300 hover:text-white transition-colors cursor-pointer"
           >
-            <ChevronUp className="w-3.5 h-3.5 text-violet-400" />
-            <span>Filmstrip</span>
+            <ChevronUp className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="font-semibold uppercase tracking-wider">FILMSTRIP</span>
           </button>
-          <span className="text-[11px] font-mono text-slate-500">|</span>
+          <span className="text-[11px] font-mono text-slate-600">•</span>
           <span className="text-[11px] font-mono text-slate-300 truncate max-w-[200px]">
             {activeItem ? activeItem.title : 'No Photo Selected'}
           </span>
@@ -103,7 +103,7 @@ export const Filmstrip: React.FC<FilmstripProps> = React.memo(({
             onClick={onPrev}
             disabled={currentIndex <= 0}
             title="Previous Photo"
-            className="p-1 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="p-1 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
@@ -111,38 +111,38 @@ export const Filmstrip: React.FC<FilmstripProps> = React.memo(({
             onClick={onNext}
             disabled={currentIndex < 0 || currentIndex >= items.length - 1}
             title="Next Photo"
-            className="p-1 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
+          className="p-1 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  return (
-    <div className="h-28 w-full bg-[#0a0d14] border-t border-[#1b202c] flex flex-col select-none shrink-0 z-20 overflow-hidden">
-      {/* Filmstrip Header / Controls Bar */}
-      <div className="h-6 px-3 bg-[#0d101a] border-b border-[#181d2b] flex items-center justify-between text-[11px] font-mono text-slate-400 shrink-0">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onToggleCollapse}
-            title="Collapse Filmstrip"
-            className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors"
-          >
-            <ChevronDown className="w-3.5 h-3.5 text-violet-400" />
-            <span>FILMSTRIP</span>
-          </button>
-          <span className="text-slate-600">•</span>
-          <span className="text-slate-300">
-            {currentIndex >= 0 ? currentIndex + 1 : 0} / {items.length} Photos
-          </span>
-        </div>
+return (
+  <div className="h-28 w-full bg-[#11141c] border-t border-[#222938] flex flex-col select-none shrink-0 z-20 overflow-hidden">
+    {/* Filmstrip Header / Controls Bar */}
+    <div className="h-6 px-3 bg-[#161a24] border-b border-[#222938] flex items-center justify-between text-[11px] font-mono text-slate-400 shrink-0">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onToggleCollapse}
+          title="Collapse Filmstrip"
+          className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors cursor-pointer"
+        >
+          <ChevronDown className="w-3.5 h-3.5 text-indigo-400" />
+          <span className="font-semibold uppercase tracking-wider">FILMSTRIP</span>
+        </button>
+        <span className="text-slate-600">•</span>
+        <span className="text-slate-300">
+          {currentIndex >= 0 ? currentIndex + 1 : 0} / {items.length} Photos
+        </span>
+      </div>
 
-        {/* Selected Photo Quick Metadata & Rating Bar */}
-        {activeItem && (
-          <div className="flex items-center gap-3">
-            {/* Pick / Reject Flag */}
+      {/* Selected Photo Quick Metadata & Rating Bar */}
+      {activeItem && (
+        <div className="flex items-center gap-3">
+          {/* Pick / Reject Flag */}
             <div className="flex items-center gap-1 bg-[#141824] px-1.5 py-0.5 rounded border border-[#202738]">
               <button
                 onClick={() =>
@@ -259,8 +259,8 @@ export const Filmstrip: React.FC<FilmstripProps> = React.memo(({
               onClick={() => onSelect(item)}
               className={`group relative shrink-0 h-16 w-20 rounded-md overflow-hidden border transition-all cursor-pointer ${
                 isActive
-                  ? 'border-violet-500 ring-2 ring-violet-500/40 shadow-lg scale-[1.02]'
-                  : 'border-[#1f2638] hover:border-slate-400 opacity-70 hover:opacity-100'
+                  ? 'border-indigo-500 ring-2 ring-indigo-500/50 shadow-lg scale-[1.02]'
+                  : 'border-[#222938] hover:border-slate-500 opacity-70 hover:opacity-100'
               }`}
             >
               <img

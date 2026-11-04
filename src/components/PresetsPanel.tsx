@@ -276,8 +276,10 @@ export const PresetsPanel: React.FC<PresetsPanelProps> = ({
   const activePreset = allPresets.find((p) => p.id === activePresetId);
 
   return (
-    <div className="space-y-3 select-none text-slate-200">
-      {/* Status banner */}
+    <div className="flex flex-col h-full min-h-0 select-none text-slate-200 gap-2.5">
+      {/* TOP CONTROLS: Fixed Header */}
+      <div className="shrink-0 space-y-2">
+        {/* Status banner */}
       {statusMessage && (
         <div className="p-2 bg-emerald-950/80 border border-emerald-700/60 rounded text-emerald-200 text-xs flex items-center justify-between animate-in fade-in">
           <span>{statusMessage}</span>
@@ -603,24 +605,26 @@ export const PresetsPanel: React.FC<PresetsPanelProps> = ({
           </div>
         </form>
       )}
+      </div>
 
-      {/* PRESETS THUMBNAIL GRID / LIST */}
-      {filteredPresets.length === 0 ? (
-        <div className="py-8 text-center text-slate-500 text-xs space-y-1">
-          <Sliders className="w-6 h-6 mx-auto text-slate-600 mb-1" />
-          <p>No presets found matching "{searchQuery || selectedCategory}"</p>
-          <button
-            onClick={() => {
-              setSearchQuery('');
-              setSelectedCategory('All');
-            }}
-            className="text-violet-400 hover:underline text-[11px]"
-          >
-            Clear filters
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-2 pt-1 max-h-[calc(100vh-23rem)] overflow-y-auto pr-0.5 custom-scrollbar">
+      {/* PRESETS THUMBNAIL GRID / LIST: Occupies remaining vertical height */}
+      <div className="flex-1 min-h-0 overflow-y-auto pr-0.5 custom-scrollbar">
+        {filteredPresets.length === 0 ? (
+          <div className="py-8 text-center text-slate-500 text-xs space-y-1">
+            <Sliders className="w-6 h-6 mx-auto text-slate-600 mb-1" />
+            <p>No presets found matching "{searchQuery || selectedCategory}"</p>
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setSelectedCategory('All');
+              }}
+              className="text-violet-400 hover:underline text-[11px]"
+            >
+              Clear filters
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 pt-1 pb-4">
           {filteredPresets.map((preset) => {
             const isActive = preset.id === activePresetId;
             const isPreviewing = preset.id === previewingPresetId;
@@ -775,6 +779,7 @@ export const PresetsPanel: React.FC<PresetsPanelProps> = ({
           })}
         </div>
       )}
+      </div>
     </div>
   );
 };

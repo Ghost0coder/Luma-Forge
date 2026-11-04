@@ -40,14 +40,15 @@ import {
 } from './services/db';
 import { SAMPLE_PHOTOS, SamplePhoto } from './data/samplePhotos';
 
-import { TopToolbar } from './components/TopToolbar';
+import { TopToolbar, WorkspaceLayout } from './components/TopToolbar';
 import { LeftSidebar } from './components/LeftSidebar';
 import { RightSidebar } from './components/RightSidebar';
-import { CanvasViewport } from './components/CanvasViewport';
+import { CanvasViewport, CanvasBackdrop } from './components/CanvasViewport';
 import { Filmstrip, FilmstripItem } from './components/Filmstrip';
 import { ExportModal } from './components/ExportModal';
 import { BatchModal } from './components/BatchModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { QuickActionsModal } from './components/QuickActionsModal';
 import { HomePage } from './pages/HomePage';
 import { SelectPanel } from './components/workspaces/SelectPanel';
 import { RemovePanel } from './components/workspaces/RemovePanel';
@@ -141,10 +142,81 @@ export default function App() {
   const [isSegmenting, setIsSegmenting] = useState<boolean>(false);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResult | null>(null);
 
-  // Modals
+  // Modals & Discovery
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
   const [isBatchOpen, setIsBatchOpen] = useState<boolean>(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState<boolean>(false);
+  const [isQuickActionsOpen, setIsQuickActionsOpen] = useState<boolean>(false);
+  const [targetInspectorSection, setTargetInspectorSection] = useState<string | null>(null);
+
+  // Workspace Layout Modes ('editing' | 'color-grading' | 'retouching' | 'minimal')
+  const [workspaceLayout, setWorkspaceLayout] = useState<WorkspaceLayout>(() => {
+    return (localStorage.getItem('lumaforge_workspace_layout') as WorkspaceLayout) || 'editing';
+  });
+
+  // Canvas Backdrop ('obsidian' | 'neutral' | 'light' | 'checker')
+  const [canvasBackdrop, setCanvasBackdrop] = useState<CanvasBackdrop>(() => {
+    return (localStorage.getItem('lumaforge_canvas_backdrop') as CanvasBackdrop) || 'obsidian';
+  });
+
+  // Focus Mode (Full Screen Canvas)
+  const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
+  const previousPanelStateRef = useRef<{ left: boolean; right: boolean; filmstrip: boolean }>({
+    left: true,
+    right: true,
+    filmstrip: false,
+  });
+
+  const handleWorkspaceLayoutChange = (layout: WorkspaceLayout) => {
+    setWorkspaceLayout(layout);
+    localStorage.setItem('lumaforge_workspace_layout', layout);
+
+    if (layout === 'editing') {
+      setLeftSidebarOpen(true);
+      setRightSidebarOpen(true);
+      setIsFilmstripCollapsed(false);
+      setWorkspaceMode('develop');
+    } else if (layout === 'color-grading') {
+      setLeftSidebarOpen(false);
+      setRightSidebarOpen(true);
+      setIsFilmstripCollapsed(true);
+      setWorkspaceMode('develop');
+      setTargetInspectorSection('grading');
+    } else if (layout === 'retouching') {
+      setLeftSidebarOpen(false);
+      setRightSidebarOpen(true);
+      setIsFilmstripCollapsed(true);
+      setWorkspaceMode('remove');
+    } else if (layout === 'minimal') {
+      setLeftSidebarOpen(false);
+      setRightSidebarOpen(false);
+      setIsFilmstripCollapsed(true);
+    }
+  };
+
+  const handleToggleFocusMode = () => {
+    if (!isFocusMode) {
+      previousPanelStateRef.current = {
+        left: leftSidebarOpen,
+        right: rightSidebarOpen,
+        filmstrip: isFilmstripCollapsed,
+      };
+      setLeftSidebarOpen(false);
+      setRightSidebarOpen(false);
+      setIsFilmstripCollapsed(true);
+      setIsFocusMode(true);
+    } else {
+      setLeftSidebarOpen(previousPanelStateRef.current.left);
+      setRightSidebarOpen(previousPanelStateRef.current.right);
+      setIsFilmstripCollapsed(previousPanelStateRef.current.filmstrip);
+      setIsFocusMode(false);
+    }
+  };
+
+  const handleCanvasBackdropChange = (bg: CanvasBackdrop) => {
+    setCanvasBackdrop(bg);
+    localStorage.setItem('lumaforge_canvas_backdrop', bg);
+  };
 
   // Hidden file input for import
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -581,6 +653,23 @@ export default function App() {
     const defaultAdj = getDefaultAdjustments();
     updateAdjustments(defaultAdj, 'Reset Adjustments');
   };
+
+  // Rename current project file
+  const handleRenameFilename = useCallback((newName: string) => {
+    setCurrentFilename(newName);
+    if (currentProjectId) {
+      const proj = projects.find((p) => p.id === currentProjectId);
+      if (proj) {
+        const updated: PhotoProject = {
+          ...proj,
+          name: newName,
+          updatedAt: Date.now(),
+        };
+        saveProject(updated).catch(console.error);
+        setProjects((prev) => prev.map((p) => (p.id === currentProjectId ? updated : p)));
+      }
+    }
+  }, [currentProjectId, projects]);
 
   // Jump to specific point in history
   const handleJumpToHistory = (index: number) => {
@@ -1206,6 +1295,55 @@ export default function App() {
           ),
         }));
       }
+      // Quick Actions Search: Cmd+K or Ctrl+K
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsQuickActionsOpen((prev) => !prev);
+      }
+      // Focus Mode: F
+      if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handleToggleFocusMode();
+      }
+      // Keyboard Shortcuts Reference: ?
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setIsShortcutsOpen(true);
+      }
+      // Zoom Fit: 0
+      if (e.key === '0' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setZoomMode('fit');
+      }
+      // Zoom 100%: 1
+      if (e.key === '1' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setZoom(1.0);
+        setZoomMode('100%');
+      }
+      // Zoom 200%: 2
+      if (e.key === '2' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setZoom(2.0);
+        setZoomMode('200%');
+      }
+      // Workspace Modes: D (Develop), S (Select), R (Remove), B (Background)
+      if (!e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === 'd') {
+          e.preventDefault();
+          setWorkspaceMode('develop');
+        } else if (k === 's') {
+          e.preventDefault();
+          setWorkspaceMode('select');
+        } else if (k === 'r') {
+          e.preventDefault();
+          setWorkspaceMode('remove');
+        } else if (k === 'b') {
+          e.preventDefault();
+          setWorkspaceMode('background');
+        }
+      }
       // Tab: toggle sidebars
       if (e.key === 'Tab') {
         e.preventDefault();
@@ -1262,6 +1400,8 @@ export default function App() {
       <TopToolbar
         workspaceMode={workspaceMode}
         onWorkspaceChange={setWorkspaceMode}
+        workspaceLayout={workspaceLayout}
+        onWorkspaceLayoutChange={handleWorkspaceLayoutChange}
         canUndo={historyIndex > 0}
         canRedo={historyIndex < history.length - 1}
         onUndo={handleUndo}
@@ -1271,6 +1411,7 @@ export default function App() {
         onExportClick={() => setIsExportOpen(true)}
         onOpenBatch={() => setIsBatchOpen(true)}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        onOpenQuickActions={() => setIsQuickActionsOpen(true)}
         comparisonMode={comparisonMode}
         onComparisonChange={setComparisonMode}
         isHoldingCompare={isHoldingCompare}
@@ -1278,10 +1419,11 @@ export default function App() {
         hasImage={!!sourceImage}
         onHomeClick={() => handleNavigate('/')}
         currentFilename={currentFilename}
+        onRenameFilename={handleRenameFilename}
       />
 
       {/* WORKSPACE 3-COLUMN LAYOUT */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 min-h-0 flex overflow-hidden relative w-full">
         {/* LEFT SIDEBAR: Library, Presets, History & Snapshots */}
         <LeftSidebar
           activeTab={leftTab}
@@ -1344,6 +1486,10 @@ export default function App() {
           onAcceptSelection={handleConvertToMask}
           onClearSelection={handleClearSelection}
           onGoToRemove={handleGoToRemove}
+          canvasBackdrop={canvasBackdrop}
+          onCanvasBackdropChange={handleCanvasBackdropChange}
+          isFocusMode={isFocusMode}
+          onToggleFocusMode={handleToggleFocusMode}
         />
 
         {/* RIGHT SIDEBAR: Switch based on Workspace Mode */}
@@ -1366,11 +1512,12 @@ export default function App() {
             isOpen={rightSidebarOpen}
             onToggleOpen={() => setRightSidebarOpen(!rightSidebarOpen)}
             sourceImage={sourceImage}
+            targetSection={targetInspectorSection}
           />
         )}
 
         {workspaceMode === 'select' && (
-          <div className={`w-80 h-full shrink-0 transition-all ${rightSidebarOpen ? 'block' : 'hidden'}`}>
+          <div className={`w-80 h-full min-h-0 shrink-0 overflow-hidden transition-all ${rightSidebarOpen ? 'block' : 'hidden'}`}>
             <SelectPanel
               selectionState={selectionState}
               onUpdateSelectionState={(updates) => setSelectionState((prev) => ({ ...prev, ...updates }))}
@@ -1388,7 +1535,7 @@ export default function App() {
         )}
 
         {workspaceMode === 'remove' && (
-          <div className={`w-80 h-full shrink-0 transition-all ${rightSidebarOpen ? 'block' : 'hidden'}`}>
+          <div className={`w-80 h-full min-h-0 shrink-0 overflow-hidden transition-all ${rightSidebarOpen ? 'block' : 'hidden'}`}>
             <RemovePanel
               retouchState={retouchState}
               onUpdateRetouchState={(updates) => setRetouchState((prev) => ({ ...prev, ...updates }))}
@@ -1404,7 +1551,7 @@ export default function App() {
         )}
 
         {workspaceMode === 'background' && (
-          <div className={`w-80 h-full shrink-0 transition-all ${rightSidebarOpen ? 'block' : 'hidden'}`}>
+          <div className={`w-80 h-full min-h-0 shrink-0 overflow-hidden transition-all ${rightSidebarOpen ? 'block' : 'hidden'}`}>
             <BackgroundPanel
               backgroundState={backgroundState}
               onUpdateBackgroundState={(updates) => setBackgroundState((prev) => ({ ...prev, ...updates }))}
@@ -1456,6 +1603,64 @@ export default function App() {
       <KeyboardShortcutsModal
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
+      />
+
+      {/* QUICK ACTIONS COMMAND PALETTE */}
+      <QuickActionsModal
+        isOpen={isQuickActionsOpen}
+        onClose={() => setIsQuickActionsOpen(false)}
+        onSelectWorkspace={(mode) => setWorkspaceMode(mode)}
+        onOpenSection={(sectionKey) => {
+          setWorkspaceMode('develop');
+          setRightSidebarOpen(true);
+          setTargetInspectorSection(sectionKey);
+        }}
+        onApplyPresetById={(presetId) => {
+          const all = [...BUILT_IN_PRESETS, ...customPresets];
+          const found = all.find((p) => p.id === presetId);
+          if (found) {
+            handleApplyPreset(found);
+          }
+        }}
+        onTriggerAction={(actionKey) => {
+          switch (actionKey) {
+            case 'import':
+              fileInputRef.current?.click();
+              break;
+            case 'export':
+              setIsExportOpen(true);
+              break;
+            case 'batch':
+              setIsBatchOpen(true);
+              break;
+            case 'shortcuts':
+              setIsShortcutsOpen(true);
+              break;
+            case 'reset':
+              handleReset();
+              break;
+            case 'fit':
+              setZoomMode('fit');
+              break;
+            case '100%':
+              setZoom(1.0);
+              setZoomMode('100%');
+              break;
+            case 'compare':
+              setComparisonMode((prev) => (prev === 'split' ? 'off' : 'split'));
+              break;
+            case 'snapshot': {
+              const name = prompt('Enter snapshot name:', `Snapshot ${snapshots.length + 1}`);
+              if (name && name.trim()) {
+                handleSaveSnapshot(name.trim());
+              }
+              break;
+            }
+            case 'focus':
+              handleToggleFocusMode();
+              break;
+          }
+        }}
       />
 
       {/* VERCEL WEB ANALYTICS */}

@@ -3,12 +3,14 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Minimize2,
   SplitSquareVertical,
   Check,
   RotateCcw,
   Users,
   Eraser,
   X,
+  Palette,
 } from 'lucide-react';
 import { Adjustments, WorkspaceMode, SelectionState, RetouchState, BackgroundRemovalState } from '../types/editor';
 import { renderImageAdjustments } from '../engine/pipeline';
@@ -23,6 +25,8 @@ import {
   resampleMask,
 } from '../engine/selection/selectionEngine';
 import { renderCompositedBackground, refineBackgroundMask } from '../engine/segmentation/backgroundRemover';
+
+export type CanvasBackdrop = 'obsidian' | 'neutral' | 'light' | 'checker';
 
 interface CanvasViewportProps {
   sourceImage: HTMLImageElement | null;
@@ -45,6 +49,10 @@ interface CanvasViewportProps {
   onAcceptSelection?: () => void;
   onClearSelection?: () => void;
   onGoToRemove?: () => void;
+  canvasBackdrop?: CanvasBackdrop;
+  onCanvasBackdropChange?: (bg: CanvasBackdrop) => void;
+  isFocusMode?: boolean;
+  onToggleFocusMode?: () => void;
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -68,7 +76,24 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   onAcceptSelection,
   onClearSelection,
   onGoToRemove,
+  canvasBackdrop = 'obsidian',
+  onCanvasBackdropChange,
+  isFocusMode = false,
+  onToggleFocusMode,
 }) => {
+  const [internalBackdrop, setInternalBackdrop] = useState<CanvasBackdrop>('obsidian');
+  const [showBackdropPicker, setShowBackdropPicker] = useState(false);
+  const currentBackdrop = canvasBackdrop ?? internalBackdrop;
+
+  const handleSelectBackdrop = (b: CanvasBackdrop) => {
+    if (onCanvasBackdropChange) {
+      onCanvasBackdropChange(b);
+    } else {
+      setInternalBackdrop(b);
+    }
+    setShowBackdropPicker(false);
+  };
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -897,7 +922,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
 
   if (!sourceImage) {
     return (
-      <main className="flex-1 h-[calc(100vh-3rem)] bg-[#07090d] flex items-center justify-center p-6 select-none relative">
+      <main className="flex-1 min-h-0 min-w-0 h-full bg-[#07090d] flex items-center justify-center p-6 select-none relative">
         <div className="max-w-md text-center space-y-3">
           <div className="w-16 h-16 rounded-2xl bg-[#141824] border border-[#232a3b] mx-auto flex items-center justify-center shadow-lg">
             <svg className="w-8 h-8 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -926,6 +951,13 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       : 0;
   const brushDiameterScreen = Math.round(activeBrushRadius * 2 * zoom);
 
+    const backdropStyle = {
+    obsidian: 'bg-[#090a0f]',
+    neutral: 'bg-[#1e2330]',
+    light: 'bg-[#e2e8f0]',
+    checker: 'bg-[linear-gradient(45deg,#232938_25%,transparent_25%),linear-gradient(-45deg,#232938_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#232938_75%),linear-gradient(-45deg,transparent_75%,#232938_75%)] bg-[size:20px_20px] bg-[#11141c]',
+  }[currentBackdrop] || 'bg-[#090a0f]';
+
   return (
     <main
       ref={containerRef}
@@ -934,7 +966,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onDoubleClick={handleDoubleClick}
-      className={`flex-1 h-[calc(100vh-3rem)] bg-[#07090d] overflow-hidden relative flex items-center justify-center select-none ${
+      className={`flex-1 min-h-0 min-w-0 h-full ${backdropStyle} overflow-hidden relative flex items-center justify-center select-none transition-colors duration-200 ${
         isSpacePressed || isPanning
           ? 'cursor-grabbing'
           : workspaceMode === 'select' || workspaceMode === 'remove'
@@ -1198,47 +1230,67 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         )}
       </div>
 
-      {/* Floating Bottom Toolbar: Zoom & Viewport Controls */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-[#121622]/90 backdrop-blur-md border border-[#232a3b] px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-2 text-xs text-slate-300 z-30">
+      {/* Floating Bottom Toolbar: Zoom, Backdrop & Focus Mode HUD */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-[#11141c]/95 backdrop-blur-md border border-[#222938] px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-2.5 text-xs text-slate-300 z-30">
+        {/* Zoom Out */}
         <button
           onClick={() => {
             onSetZoomMode?.('custom');
             onSetZoom(Math.max(0.05, zoom * 0.85));
           }}
           title="Zoom Out (-)"
-          className="p-1 hover:text-white hover:bg-[#1f2638] rounded-full transition-colors cursor-pointer"
+          className="p-1 hover:text-white hover:bg-[#1c2230] rounded-full transition-colors cursor-pointer"
         >
           <ZoomOut className="w-3.5 h-3.5" />
         </button>
 
+        {/* Zoom Slider */}
+        <input
+          type="range"
+          min="0.05"
+          max="3.0"
+          step="0.05"
+          value={zoom}
+          onChange={(e) => {
+            onSetZoom(parseFloat(e.target.value));
+            onSetZoomMode?.('custom');
+          }}
+          title="Adjust zoom level"
+          className="w-16 h-1 accent-indigo-500 bg-[#222938] rounded cursor-pointer hidden sm:inline-block"
+        />
+
+        {/* Percentage Readout */}
         <span className="font-mono text-[11px] w-12 text-center tabular-nums text-slate-200">
           {Math.round(zoom * 100)}%
         </span>
 
+        {/* Zoom In */}
         <button
           onClick={() => {
             onSetZoomMode?.('custom');
             onSetZoom(Math.min(5.0, zoom * 1.15));
           }}
           title="Zoom In (+)"
-          className="p-1 hover:text-white hover:bg-[#1f2638] rounded-full transition-colors cursor-pointer"
+          className="p-1 hover:text-white hover:bg-[#1c2230] rounded-full transition-colors cursor-pointer"
         >
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
 
-        <div className="w-px h-3.5 bg-slate-700 mx-0.5" />
+        <div className="w-px h-3.5 bg-[#222938] mx-0.5" />
 
+        {/* Fit button */}
         <button
           onClick={handleFit}
           title="Fit entire image in workspace without cropping"
           className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full transition-colors text-[11px] cursor-pointer ${
-            zoomMode === 'fit' ? 'bg-violet-600 text-white font-medium' : 'hover:text-white hover:bg-[#1f2638]'
+            zoomMode === 'fit' ? 'bg-indigo-600 text-white font-medium' : 'hover:text-white hover:bg-[#1c2230]'
           }`}
         >
           <Maximize2 className="w-3 h-3" />
           <span>Fit</span>
         </button>
 
+        {/* 100% button */}
         <button
           onClick={() => {
             onSetZoom(1.0);
@@ -1248,13 +1300,14 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           title="Actual Size (100% / 1:1 pixel scale)"
           className={`px-2.5 py-0.5 rounded-full transition-colors text-[11px] cursor-pointer ${
             zoomMode === '100%' || Math.abs(zoom - 1.0) < 0.01
-              ? 'bg-violet-600 text-white font-medium'
-              : 'hover:text-white hover:bg-[#1f2638]'
+              ? 'bg-indigo-600 text-white font-medium'
+              : 'hover:text-white hover:bg-[#1c2230]'
           }`}
         >
           100%
         </button>
 
+        {/* 200% button */}
         <button
           onClick={() => {
             onSetZoom(2.0);
@@ -1264,12 +1317,71 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           title="Double Magnification (200% / 2:1 zoom magnification)"
           className={`px-2.5 py-0.5 rounded-full transition-colors text-[11px] cursor-pointer ${
             zoomMode === '200%' || Math.abs(zoom - 2.0) < 0.01
-              ? 'bg-violet-600 text-white font-medium'
-              : 'hover:text-white hover:bg-[#1f2638]'
+              ? 'bg-indigo-600 text-white font-medium'
+              : 'hover:text-white hover:bg-[#1c2230]'
           }`}
         >
           200%
         </button>
+
+        <div className="w-px h-3.5 bg-[#222938] mx-0.5" />
+
+        {/* Canvas Backdrop Selector */}
+        <div className="relative">
+          <button
+            onClick={() => setShowBackdropPicker((prev) => !prev)}
+            title="Change canvas background (Obsidian, Neutral, Light, Checkerboard)"
+            className="p-1 hover:text-white hover:bg-[#1c2230] rounded-full transition-colors cursor-pointer flex items-center gap-1 text-[11px] text-slate-400"
+          >
+            <Palette className="w-3.5 h-3.5 text-indigo-400" />
+          </button>
+
+          {showBackdropPicker && (
+            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-[#161a24] border border-[#222938] rounded-lg p-1.5 shadow-2xl flex items-center gap-1.5 z-40">
+              <button
+                onClick={() => handleSelectBackdrop('obsidian')}
+                title="Obsidian Void (#090a0f)"
+                className={`w-5 h-5 rounded-full bg-[#090a0f] border ${
+                  currentBackdrop === 'obsidian' ? 'border-indigo-400 ring-2 ring-indigo-500/50' : 'border-[#222938]'
+                }`}
+              />
+              <button
+                onClick={() => handleSelectBackdrop('neutral')}
+                title="Neutral Grey (#1e2330)"
+                className={`w-5 h-5 rounded-full bg-[#1e2330] border ${
+                  currentBackdrop === 'neutral' ? 'border-indigo-400 ring-2 ring-indigo-500/50' : 'border-[#222938]'
+                }`}
+              />
+              <button
+                onClick={() => handleSelectBackdrop('light')}
+                title="Studio Light (#e2e8f0)"
+                className={`w-5 h-5 rounded-full bg-[#e2e8f0] border ${
+                  currentBackdrop === 'light' ? 'border-indigo-400 ring-2 ring-indigo-500/50' : 'border-[#222938]'
+                }`}
+              />
+              <button
+                onClick={() => handleSelectBackdrop('checker')}
+                title="Transparency Checkerboard"
+                className={`w-5 h-5 rounded-full bg-[linear-gradient(45deg,#475569_25%,transparent_25%),linear-gradient(-45deg,#475569_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#475569_75%),linear-gradient(-45deg,transparent_75%,#475569_75%)] bg-[size:6px_6px] bg-slate-800 border ${
+                  currentBackdrop === 'checker' ? 'border-indigo-400 ring-2 ring-indigo-500/50' : 'border-[#222938]'
+                }`}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Focus Mode Toggle */}
+        {onToggleFocusMode && (
+          <button
+            onClick={onToggleFocusMode}
+            title={isFocusMode ? "Exit Focus Mode (F)" : "Enter Focus Mode (F) - Hide sidebars for full-canvas view"}
+            className={`p-1 rounded-full transition-colors cursor-pointer ${
+              isFocusMode ? 'bg-indigo-600 text-white' : 'hover:text-white hover:bg-[#1c2230] text-slate-400'
+            }`}
+          >
+            {isFocusMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+        )}
       </div>
     </main>
   );

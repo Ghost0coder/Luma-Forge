@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sun,
   Palette,
@@ -50,6 +50,7 @@ interface RightSidebarProps {
   isOpen?: boolean;
   onToggleOpen?: () => void;
   sourceImage?: HTMLImageElement | null;
+  targetSection?: string | null;
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
@@ -67,6 +68,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   isOpen = true,
   onToggleOpen,
   sourceImage,
+  targetSection,
 }) => {
   // Mode state: 'basic' vs 'advanced'
   const [editMode, setEditMode] = useState<'basic' | 'advanced'>('basic');
@@ -85,6 +87,19 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     geometry: false,
     masks: false,
   });
+
+  // Highlight and auto-expand target section when directed from Quick Actions
+  useEffect(() => {
+    if (targetSection) {
+      setOpenSections((prev) => ({ ...prev, [targetSection]: true }));
+      setTimeout(() => {
+        const el = document.getElementById(`section-${targetSection}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 50);
+    }
+  }, [targetSection]);
 
   const toggleSection = (sec: string) => {
     setOpenSections((prev) => ({ ...prev, [sec]: !prev[sec] }));
@@ -348,22 +363,23 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   if (!isOpen) {
     return (
-      <div className="w-10 bg-[#0e1117] border-l border-[#1b202c] flex flex-col items-center py-3 gap-4 shrink-0 z-20 select-none">
+      <aside className="w-12 bg-[#11141c] border-l border-[#222938] flex flex-col items-center py-3 gap-3 shrink-0 z-20 select-none h-full min-h-0">
         <button
           onClick={onToggleOpen}
           title="Expand Right Sidebar"
-          className="p-1.5 text-slate-400 hover:text-white hover:bg-[#1a202d] rounded-md transition-colors"
+          className="p-2 text-slate-400 hover:text-white hover:bg-[#161a24] rounded-lg transition-colors cursor-pointer"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
+        <div className="w-6 h-px bg-[#222938] my-0.5" />
         <button
           onClick={() => {
             setEditMode('basic');
             onToggleOpen?.();
           }}
           title="Basic Editing Mode"
-          className={`p-2 rounded-md transition-colors ${
-            editMode === 'basic' ? 'text-violet-400 bg-violet-950/40' : 'text-slate-400 hover:text-white'
+          className={`p-2.5 rounded-lg transition-colors cursor-pointer ${
+            editMode === 'basic' ? 'text-indigo-400 bg-indigo-950/40 border border-indigo-800/40 shadow-sm' : 'text-slate-400 hover:text-white hover:bg-[#161a24]'
           }`}
         >
           <Sun className="w-4 h-4" />
@@ -373,27 +389,27 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             setEditMode('advanced');
             onToggleOpen?.();
           }}
-          title="Advanced Editing Mode"
-          className={`p-2 rounded-md transition-colors ${
-            editMode === 'advanced' ? 'text-violet-400 bg-violet-950/40' : 'text-slate-400 hover:text-white'
+          title="Advanced Professional Inspector"
+          className={`p-2.5 rounded-lg transition-colors cursor-pointer ${
+            editMode === 'advanced' ? 'text-indigo-400 bg-indigo-950/40 border border-indigo-800/40 shadow-sm' : 'text-slate-400 hover:text-white hover:bg-[#161a24]'
           }`}
         >
           <SlidersHorizontal className="w-4 h-4" />
         </button>
-      </div>
+      </aside>
     );
   }
 
   return (
-    <aside className="w-80 sm:w-84 bg-[#0e1117] border-l border-[#1b202c] flex flex-col h-[calc(100vh-3rem)] shrink-0 z-20 select-none overflow-hidden text-slate-200">
+    <aside className="w-80 sm:w-84 bg-[#11141c] border-l border-[#222938] flex flex-col h-full min-h-0 shrink-0 z-20 select-none overflow-hidden text-slate-200">
       {/* Top Section: Mode Switcher (Basic vs Advanced) */}
-      <div className="p-2.5 border-b border-[#1b202c] bg-[#0c0f16] flex items-center justify-between">
-        <div className="flex items-center gap-1 p-0.5 bg-[#141822] rounded-lg border border-[#202738] text-xs">
+      <div className="p-2.5 border-b border-[#222938] bg-[#11141c] flex items-center justify-between">
+        <div className="flex items-center gap-1 p-0.5 bg-[#0c0e14] rounded-lg border border-[#222938] text-xs">
           <button
             onClick={() => setEditMode('basic')}
-            className={`px-3 py-1 rounded-md font-semibold transition-all ${
+            className={`px-3 py-1 rounded-md font-semibold transition-all cursor-pointer ${
               editMode === 'basic'
-                ? 'bg-violet-600 text-white shadow-sm'
+                ? 'bg-indigo-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -401,9 +417,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           </button>
           <button
             onClick={() => setEditMode('advanced')}
-            className={`px-3 py-1 rounded-md font-semibold transition-all ${
+            className={`px-3 py-1 rounded-md font-semibold transition-all cursor-pointer ${
               editMode === 'advanced'
-                ? 'bg-violet-600 text-white shadow-sm'
+                ? 'bg-indigo-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -415,7 +431,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <button
             onClick={onToggleOpen}
             title="Collapse Right Sidebar"
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-[#1a202d] rounded-md transition-colors"
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-[#161a24] rounded-lg transition-colors cursor-pointer"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -465,7 +481,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       </div>
 
       {/* Scrollable Adjustment Modules */}
-      <div className="flex-1 overflow-y-auto p-3 pb-32 space-y-3 divide-y divide-[#1b202c]">
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 pb-8 space-y-3 divide-y divide-[#1b202c]">
         {/* BASIC MODE CONTROLS */}
         {editMode === 'basic' && (
           <div className="space-y-4 pt-1">

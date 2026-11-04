@@ -10,6 +10,8 @@ import {
   Upload,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Check,
 } from 'lucide-react';
@@ -90,24 +92,27 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
   onSetZoom,
   onFit,
 }) => {
+  const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
+
   if (!isOpen) {
     return (
-      <div className="w-10 bg-[#0e1117] border-r border-[#1b202c] flex flex-col items-center py-3 gap-4 shrink-0 z-20">
+      <aside className="w-12 bg-[#11141c] border-r border-[#222938] flex flex-col items-center py-3 gap-3 shrink-0 z-20 h-full min-h-0">
         <button
           onClick={onToggleOpen}
           title="Expand sidebar"
-          className="p-1.5 text-slate-400 hover:text-white hover:bg-[#1a202d] rounded-md transition-colors"
+          className="p-2 text-slate-400 hover:text-white hover:bg-[#161a24] rounded-lg transition-colors cursor-pointer"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
+        <div className="w-6 h-px bg-[#222938] my-0.5" />
         <button
           onClick={() => {
             setActiveTab('library');
             onToggleOpen();
           }}
-          title="Library"
-          className={`p-2 rounded-md transition-colors ${
-            activeTab === 'library' ? 'text-violet-400 bg-violet-950/40' : 'text-slate-400 hover:text-white'
+          title="Library & Sessions"
+          className={`p-2.5 rounded-lg transition-colors cursor-pointer ${
+            activeTab === 'library' ? 'text-indigo-400 bg-indigo-950/40 border border-indigo-800/40 shadow-sm' : 'text-slate-400 hover:text-white hover:bg-[#161a24]'
           }`}
         >
           <ImageIcon className="w-4 h-4" />
@@ -117,9 +122,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
             setActiveTab('presets');
             onToggleOpen();
           }}
-          title="Presets"
-          className={`p-2 rounded-md transition-colors ${
-            activeTab === 'presets' ? 'text-violet-400 bg-violet-950/40' : 'text-slate-400 hover:text-white'
+          title="Presets Studio"
+          className={`p-2.5 rounded-lg transition-colors cursor-pointer ${
+            activeTab === 'presets' ? 'text-indigo-400 bg-indigo-950/40 border border-indigo-800/40 shadow-sm' : 'text-slate-400 hover:text-white hover:bg-[#161a24]'
           }`}
         >
           <Sliders className="w-4 h-4" />
@@ -129,27 +134,27 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
             setActiveTab('history');
             onToggleOpen();
           }}
-          title="History"
-          className={`p-2 rounded-md transition-colors ${
-            activeTab === 'history' ? 'text-violet-400 bg-violet-950/40' : 'text-slate-400 hover:text-white'
+          title="History & Snapshots"
+          className={`p-2.5 rounded-lg transition-colors cursor-pointer ${
+            activeTab === 'history' ? 'text-indigo-400 bg-indigo-950/40 border border-indigo-800/40 shadow-sm' : 'text-slate-400 hover:text-white hover:bg-[#161a24]'
           }`}
         >
           <History className="w-4 h-4" />
         </button>
-      </div>
+      </aside>
     );
   }
 
   return (
-    <aside className="w-72 sm:w-80 bg-[#0e1117] border-r border-[#1b202c] flex flex-col h-[calc(100vh-3rem)] shrink-0 z-20 select-none overflow-hidden">
+    <aside className="w-72 sm:w-80 bg-[#11141c] border-r border-[#222938] flex flex-col h-full min-h-0 shrink-0 z-20 select-none overflow-hidden">
       {/* Sidebar Header & Tab Switcher */}
-      <div className="p-3 border-b border-[#1b202c] flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1 p-0.5 bg-[#141822] rounded-lg border border-[#202738] text-xs">
+      <div className="p-3 border-b border-[#222938] flex items-center justify-between gap-2 bg-[#11141c] shrink-0">
+        <div className="flex items-center gap-1 p-0.5 bg-[#0c0e14] rounded-lg border border-[#222938] text-xs">
           <button
             onClick={() => setActiveTab('library')}
-            className={`px-2.5 py-1 rounded-md font-medium transition-colors whitespace-nowrap ${
+            className={`px-2.5 py-1 rounded-md font-medium transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'library'
-                ? 'bg-[#222a3b] text-white shadow-sm'
+                ? 'bg-[#1c2230] text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -157,9 +162,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
           </button>
           <button
             onClick={() => setActiveTab('presets')}
-            className={`px-2.5 py-1 rounded-md font-medium transition-colors whitespace-nowrap ${
+            className={`px-2.5 py-1 rounded-md font-medium transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'presets'
-                ? 'bg-[#222a3b] text-white shadow-sm'
+                ? 'bg-[#1c2230] text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -167,9 +172,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`px-2.5 py-1 rounded-md font-medium transition-colors whitespace-nowrap ${
+            className={`px-2.5 py-1 rounded-md font-medium transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'history'
-                ? 'bg-[#222a3b] text-white shadow-sm'
+                ? 'bg-[#1c2230] text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -180,83 +185,111 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
         <button
           onClick={onToggleOpen}
           title="Collapse sidebar"
-          className="p-1.5 text-slate-400 hover:text-white hover:bg-[#1a202d] rounded-md transition-colors"
+          className="p-1.5 text-slate-400 hover:text-white hover:bg-[#161a24] rounded-lg transition-colors cursor-pointer"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
       </div>
 
-      {/* NAVIGATOR SECTION */}
-      {sourceImage && (
-        <div className="p-3 border-b border-[#1b202c] bg-[#0b0e14]">
-          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-1.5">
-            <span className="flex items-center gap-1.5 text-violet-300 font-semibold uppercase tracking-wider">
-              <Compass className="w-3.5 h-3.5 text-violet-400" />
-              NAVIGATOR
-            </span>
-            <span className="tabular-nums">{Math.round(zoom * 100)}%</span>
-          </div>
-
-          <div className="relative aspect-[4/3] rounded-md overflow-hidden bg-black border border-[#202738] group">
-            <img
-              src={sourceImage.src}
-              alt="Navigator Preview"
-              className="w-full h-full object-contain"
-            />
-            {zoom > 1.0 && (
-              <div
-                className="absolute border-2 border-violet-400 bg-violet-500/20 pointer-events-none rounded-sm transition-all"
-                style={{
-                  width: `${Math.max(20, 100 / zoom)}%`,
-                  height: `${Math.max(20, 100 / zoom)}%`,
-                  top: '25%',
-                  left: '25%',
-                }}
-              />
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-1 mt-2 text-[10px] font-mono">
-            <button
-              onClick={() => onFit?.()}
-              title="Fit complete image inside workspace"
-              className="flex-1 py-1 bg-[#141822] hover:bg-[#202738] rounded border border-[#202738] text-slate-300 hover:text-white transition-colors cursor-pointer"
-            >
-              FIT
-            </button>
-            <button
-              onClick={() => onSetZoom?.(1.0)}
-              title="Actual size (100% / 1:1 pixel scale)"
-              className={`flex-1 py-1 rounded border border-[#202738] transition-colors cursor-pointer ${
-                Math.abs(zoom - 1.0) < 0.01
-                  ? 'bg-violet-600 text-white font-medium'
-                  : 'bg-[#141822] hover:bg-[#202738] text-slate-300 hover:text-white'
-              }`}
-            >
-              100%
-            </button>
-            <button
-              onClick={() => onSetZoom?.(2.0)}
-              title="Double magnification (200% / 2:1 zoom)"
-              className={`flex-1 py-1 rounded border border-[#202738] transition-colors cursor-pointer ${
-                Math.abs(zoom - 2.0) < 0.01
-                  ? 'bg-violet-600 text-white font-medium'
-                  : 'bg-[#141822] hover:bg-[#202738] text-slate-300 hover:text-white'
-              }`}
-            >
-              200%
-            </button>
-          </div>
+      {/* TAB CONTENT: PRESETS gets full height without wrapper scroll; LIBRARY & HISTORY get custom scrolling */}
+      {activeTab === 'presets' ? (
+        <div className="flex-1 min-h-0 flex flex-col h-full overflow-hidden p-3">
+          <PresetsPanel
+            builtInPresets={builtInPresets}
+            customPresets={customPresets}
+            activePresetId={activePresetId}
+            presetStrength={presetStrength}
+            onApplyPreset={onApplyPreset}
+            onPresetStrengthChange={onPresetStrengthChange}
+            onPreviewPreset={onPreviewPreset}
+            onResetPreset={onResetPreset}
+            onSaveCustomPreset={onSaveCustomPreset}
+            onUpdateCustomPreset={onUpdateCustomPreset}
+            onImportCustomPreset={onImportCustomPreset}
+            onDeleteCustomPreset={onDeleteCustomPreset}
+            sourceImage={sourceImage}
+            currentAdjustments={currentAdjustments}
+          />
         </div>
-      )}
+      ) : activeTab === 'library' ? (
+        <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
+          {/* Collapsible Navigator Section inside Library tab */}
+          {sourceImage && (
+            <div className="rounded-lg border border-[#222938] bg-[#0c0e14] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setIsNavigatorOpen(!isNavigatorOpen)}
+                className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-mono text-slate-400 hover:text-slate-200 hover:bg-[#141822] transition-colors cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5 text-indigo-300 font-semibold uppercase tracking-wider">
+                  <Compass className="w-3.5 h-3.5 text-indigo-400" />
+                  NAVIGATOR
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="tabular-nums text-slate-300">{Math.round(zoom * 100)}%</span>
+                  {isNavigatorOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </div>
+              </button>
 
-      {/* TAB CONTENT */}
-      <div className="flex-1 overflow-y-auto p-3 pb-28 space-y-4">
-        {/* 1. LIBRARY TAB */}
-        {activeTab === 'library' && (
-          <div className="space-y-4">
-            {/* Sample RAW / Editorial Photos */}
-            <div>
+              {isNavigatorOpen && (
+                <div className="p-2.5 pt-0 border-t border-[#222938]/60 space-y-2">
+                  <div className="relative aspect-[4/3] rounded-md overflow-hidden bg-black border border-[#222938] group shadow-inner">
+                    <img
+                      src={sourceImage.src}
+                      alt="Navigator Preview"
+                      className="w-full h-full object-contain"
+                    />
+                    {zoom > 1.0 && (
+                      <div
+                        className="absolute border-2 border-indigo-400 bg-indigo-500/20 pointer-events-none rounded-sm transition-all"
+                        style={{
+                          width: `${Math.max(20, 100 / zoom)}%`,
+                          height: `${Math.max(20, 100 / zoom)}%`,
+                          top: '25%',
+                          left: '25%',
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-1 text-[10px] font-mono">
+                    <button
+                      onClick={() => onFit?.()}
+                      title="Fit complete image inside workspace"
+                      className="flex-1 py-1 bg-[#161a24] hover:bg-[#1c2230] rounded border border-[#222938] text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    >
+                      FIT
+                    </button>
+                    <button
+                      onClick={() => onSetZoom?.(1.0)}
+                      title="Actual size (100% / 1:1 pixel scale)"
+                      className={`flex-1 py-1 rounded border transition-colors cursor-pointer ${
+                        Math.abs(zoom - 1.0) < 0.01
+                          ? 'bg-indigo-600 text-white font-medium border-indigo-500'
+                          : 'bg-[#161a24] hover:bg-[#1c2230] border-[#222938] text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      100%
+                    </button>
+                    <button
+                      onClick={() => onSetZoom?.(2.0)}
+                      title="Double magnification (200% / 2:1 zoom)"
+                      className={`flex-1 py-1 rounded border transition-colors cursor-pointer ${
+                        Math.abs(zoom - 2.0) < 0.01
+                          ? 'bg-indigo-600 text-white font-medium border-indigo-500'
+                          : 'bg-[#161a24] hover:bg-[#1c2230] border-[#222938] text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      200%
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Sample RAW / Editorial Photos */}
+          <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                   Sample Studio Photos
@@ -299,7 +332,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
               </div>
 
               {projects.length === 0 ? (
-                <div className="p-4 rounded-lg bg-[#12151e] border border-[#1d2330] text-center text-xs text-slate-500">
+                <div className="p-4 rounded-lg bg-[#0c0e14] border border-[#222938] text-center text-xs text-slate-500">
                   <FolderOpen className="w-6 h-6 mx-auto mb-1.5 text-slate-600" />
                   No saved sessions yet. Imported photos will automatically persist in your local IndexedDB storage.
                 </div>
@@ -313,8 +346,8 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
                         onClick={() => onSelectProject(proj.id)}
                         className={`flex items-center justify-between gap-2 p-2 rounded-lg border transition-all cursor-pointer ${
                           isSelected
-                            ? 'bg-violet-950/30 border-violet-700/60 text-white'
-                            : 'bg-[#141822] hover:bg-[#1a202d] border-[#202738] text-slate-300'
+                            ? 'bg-indigo-950/40 border-indigo-500/60 text-white shadow-sm'
+                            : 'bg-[#161a24] hover:bg-[#1c2230] border-[#222938] text-slate-300'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -322,10 +355,10 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
                             <img
                               src={proj.thumbnailUrl}
                               alt={proj.name}
-                              className="w-10 h-10 object-cover rounded border border-[#2b3345] shrink-0"
+                              className="w-10 h-10 object-cover rounded-md border border-[#222938] shrink-0"
                             />
                           ) : (
-                            <div className="w-10 h-10 bg-[#1b212f] rounded flex items-center justify-center shrink-0">
+                            <div className="w-10 h-10 bg-[#0c0e14] rounded-md border border-[#222938] flex items-center justify-center shrink-0">
                               <ImageIcon className="w-4 h-4 text-slate-500" />
                             </div>
                           )}
@@ -356,36 +389,14 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
               )}
             </div>
           </div>
-        )}
-
-        {/* 2. PRESETS TAB */}
-        {activeTab === 'presets' && (
-          <PresetsPanel
-            builtInPresets={builtInPresets}
-            customPresets={customPresets}
-            activePresetId={activePresetId}
-            presetStrength={presetStrength}
-            onApplyPreset={onApplyPreset}
-            onPresetStrengthChange={onPresetStrengthChange}
-            onPreviewPreset={onPreviewPreset}
-            onResetPreset={onResetPreset}
-            onSaveCustomPreset={onSaveCustomPreset}
-            onUpdateCustomPreset={onUpdateCustomPreset}
-            onImportCustomPreset={onImportCustomPreset}
-            onDeleteCustomPreset={onDeleteCustomPreset}
-            sourceImage={sourceImage}
-            currentAdjustments={currentAdjustments}
-          />
-        )}
-
-        {/* 3. HISTORY TAB */}
-        {activeTab === 'history' && (
-          <div className="space-y-4">
-            {/* SNAPSHOTS SUB-SECTION */}
-            <div className="space-y-2">
+      ) : (
+        /* 3. HISTORY TAB */
+        <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
+          {/* SNAPSHOTS SUB-SECTION */}
+          <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
                 <span className="flex items-center gap-1.5">
-                  <Camera className="w-3.5 h-3.5 text-violet-400" />
+                  <Camera className="w-3.5 h-3.5 text-indigo-400" />
                   Snapshots
                 </span>
                 <button
@@ -395,14 +406,14 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
                       onSaveSnapshot?.(name.trim());
                     }
                   }}
-                  className="px-2 py-0.5 rounded bg-violet-950/60 hover:bg-violet-900 border border-violet-800/40 text-[11px] font-mono text-violet-300 transition-colors"
+                  className="px-2.5 py-1 rounded-md bg-[#161a24] hover:bg-[#1c2230] border border-[#222938] hover:border-slate-500 text-[11px] font-mono text-indigo-300 transition-colors cursor-pointer"
                 >
-                  + Create Snapshot
+                  + Snapshot
                 </button>
               </div>
 
               {snapshots.length === 0 ? (
-                <div className="p-3 rounded-lg bg-[#12151e] border border-[#1d2330] text-center text-[11px] text-slate-500">
+                <div className="p-3 rounded-lg bg-[#0c0e14] border border-[#222938] text-center text-[11px] text-slate-500">
                   Save named edit states (e.g. "Warm Look") to recall them at any time.
                 </div>
               ) : (
@@ -411,10 +422,10 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
                     <div
                       key={snap.id}
                       onClick={() => onRestoreSnapshot?.(snap)}
-                      className="flex items-center justify-between p-2 rounded-md bg-[#141822] hover:bg-[#1a202d] border border-[#202738] text-xs text-slate-200 cursor-pointer transition-colors group"
+                      className="flex items-center justify-between p-2 rounded-lg bg-[#161a24] hover:bg-[#1c2230] border border-[#222938] text-xs text-slate-200 cursor-pointer transition-colors group"
                     >
                       <div className="min-w-0">
-                        <div className="font-medium truncate text-violet-200 group-hover:text-white">
+                        <div className="font-medium truncate text-indigo-200 group-hover:text-white">
                           {snap.name}
                         </div>
                         <div className="text-[10px] font-mono text-slate-500">
@@ -437,17 +448,17 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
               )}
             </div>
 
-            <hr className="border-[#1b202c]" />
+            <hr className="border-[#222938]" />
 
             {/* EDIT HISTORY STACK */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                 <span>Non-Destructive History</span>
-                <span className="font-mono tabular-nums">{history.length} states</span>
+                <span className="font-mono tabular-nums text-slate-500">{history.length} states</span>
               </div>
 
               {history.length === 0 ? (
-                <div className="p-4 rounded-lg bg-[#12151e] border border-[#1d2330] text-center text-xs text-slate-500">
+                <div className="p-4 rounded-lg bg-[#0c0e14] border border-[#222938] text-center text-xs text-slate-500">
                   <Clock className="w-6 h-6 mx-auto mb-1.5 text-slate-600" />
                   No edits made yet. Adjust any parameter to build your non-destructive history stack.
                 </div>
@@ -460,18 +471,18 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
                       <button
                         key={entry.id}
                         onClick={() => onJumpToHistory(idx)}
-                        className={`w-full flex items-center justify-between p-2 rounded-md text-left text-xs transition-colors ${
+                        className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
                           isCurrent
-                            ? 'bg-violet-950/50 border border-violet-700/60 text-white font-medium'
+                            ? 'bg-indigo-950/40 border border-indigo-500/50 text-white font-medium shadow-sm'
                             : isFuture
-                            ? 'bg-[#10131b] text-slate-600 hover:text-slate-400'
-                            : 'bg-[#141822] hover:bg-[#1c2230] text-slate-300'
+                            ? 'bg-[#0c0e14] text-slate-600 hover:text-slate-400 border border-transparent'
+                            : 'bg-[#161a24] hover:bg-[#1c2230] text-slate-300 border border-[#222938]'
                         }`}
                       >
                         <div className="flex items-center gap-2 truncate">
                           <span
                             className={`w-1.5 h-1.5 rounded-full ${
-                              isCurrent ? 'bg-violet-400' : isFuture ? 'bg-slate-700' : 'bg-slate-500'
+                              isCurrent ? 'bg-indigo-400' : isFuture ? 'bg-slate-700' : 'bg-slate-500'
                             }`}
                           />
                           <span className="truncate">{entry.action}</span>
@@ -484,10 +495,9 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = React.memo(({
                   })}
                 </div>
               )}
-            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </aside>
   );
 });
